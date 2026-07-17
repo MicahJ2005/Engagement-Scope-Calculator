@@ -338,11 +338,11 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card">
       <h2>Delivery mix &amp; committed hours per week</h2>
-      <p class="sub">Rate is set by contract term (6 / 12 / 24 months) — longer commitments earn a lower rate, matching DC's standard subscription pricing. Standard weekly commitments are 5, 10, 15, 20, 25, 30, or 40 hours; anything else needs approval.</p>
+      <p class="sub">Pick which rate card class backs each delivery tier — cost and price/hr are pulled live from the Rate Card's "Managed Svcs" columns. Contract term then applies DC's standard commitment discount (6 mo = full rate, 12 mo ≈ 4% off, 24 mo ≈ 12% off). Standard weekly commitments are 5, 10, 15, 20, 25, 30, or 40 hours; anything else needs approval.</p>
       <div class="tbl-wrap">
         <table>
           <thead>
-            <tr><th>Delivery tier</th><th class="num">Hrs / week</th><th class="num">Rate / hr</th><th class="num">Cost / hr</th><th class="num">Weekly revenue</th><th class="num">Margin</th></tr>
+            <tr><th>Delivery tier</th><th style="min-width:170px;">Rate class</th><th class="num">Hrs / week</th><th class="num">Rate / hr</th><th class="num">Cost / hr</th><th class="num">Weekly revenue</th><th class="num">Margin</th></tr>
           </thead>
           <tbody id="msTiersBody"></tbody>
         </table>
@@ -362,15 +362,8 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
     </div>
 
     <div class="card">
-      <h2>SLA tier</h2>
+      <h2>Request volume &amp; approval</h2>
       <div class="grid cols-3">
-        <div class="field"><label>Response tier</label>
-          <select id="tm_sla">
-            <option value="1">Standard (×1.0)</option>
-            <option value="1.15">Priority (×1.15)</option>
-            <option value="1.35">Urgent (×1.35)</option>
-          </select>
-        </div>
         <div class="field"><label>Est. requests / month</label><input type="number" min="0" id="tm_requests" value="4"></div>
         <div class="field"><label>Approval (if exception)</label><input type="text" id="tm_approval" placeholder="DC Leadership sign-off name"></div>
       </div>
@@ -378,13 +371,14 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card">
       <h2>Estimated block of hours</h2>
-      <p class="sub">Priced from the shared resource pool at the SLA tier's rate multiplier — no named lead, billed as delivered.</p>
+      <p class="sub">Mix as many SLA tiers as the quote needs — each line picks its own response tier, priced from the shared resource pool at that tier's rate multiplier. No named lead, billed as delivered.</p>
       <div class="tbl-wrap">
         <table id="tmTable">
           <thead>
             <tr>
               <th style="min-width:140px;">Rate class</th>
               <th style="min-width:110px;">Billing type</th>
+              <th style="min-width:120px;">SLA tier</th>
               <th class="num">Est. hours</th>
               <th class="num">Cost/hr</th>
               <th class="num">Price/hr (w/ SLA)</th>
@@ -430,7 +424,13 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card">
       <h2>Export</h2>
-      <p class="sub">Generates a Demand Chain–branded PDF covering discovery and every track with active scope (Project pages include the timeline infographic).</p>
+      <p class="sub">Choose which sections to include, then generate a Demand Chain–branded PDF. Project pages include the timeline infographic.</p>
+      <div class="grid cols-4" style="margin-bottom:16px;">
+        <label class="checkbox-row"><input type="checkbox" id="pdf_opt_discovery"> Paid Discovery</label>
+        <label class="checkbox-row"><input type="checkbox" id="pdf_opt_project"> Project</label>
+        <label class="checkbox-row"><input type="checkbox" id="pdf_opt_ms"> Managed Services</label>
+        <label class="checkbox-row"><input type="checkbox" id="pdf_opt_tm"> Ad-Hoc T&amp;M</label>
+      </div>
       <button class="btn btn-primary" id="btnExport2">⬇ Download PDF</button>
     </div>
   </div>
@@ -492,11 +492,20 @@ const TRACKS = [
   { key: "tm", label: "Ad-Hoc T&M", tagline: "Replaces unstructured T&M", desc: "FIFO queue, SLA response tiers, shared resource pool. No dedicated resource assigned.", creditsTo: "SLA tier setup fee / first queue credit" },
 ];
 
-// Managed Services standard term pricing (from the DC Way Managed Services Calculator)
+// Managed Services delivery tiers — cost & price now come live from the Rate Card
+// (Managed Svcs columns). Term-length discount anchors mirror the DC Way calculator's
+// standard subscription pricing (6 mo = full rate, 12 mo ≈ -4%, 24 mo ≈ -12%).
 const MS_REGIONS = [
-  { key: "onshore", label: "Onshore", cost: 80.82, rate6: 250, rate12: 240, rate24: 220, standardHours: [5,10,15,20,25,30,40] },
-  { key: "nearshore", label: "Nearshore", cost: 54.17, rate6: 140, rate12: 130, rate24: 115, standardHours: [20,40] },
-  { key: "offshore", label: "Offshore", cost: 35.55, rate6: 80, rate12: 75, rate24: 67, standardHours: [40] },
+  { key: "onshore", label: "Onshore", defaultRateClass: "Senior Consultant", standardHours: [5,10,15,20,25,30,40] },
+  { key: "nearshore", label: "Nearshore", defaultRateClass: "Nearshore Senior Dev", standardHours: [20,40] },
+  { key: "offshore", label: "Offshore", defaultRateClass: "Offshore Senior", standardHours: [40] },
+];
+const MS_TERM_DISCOUNT = [[6, 1], [12, 0.96], [24, 0.88]];
+
+const SLA_TIERS = [
+  { value: "1", label: "Standard (×1.0)" },
+  { value: "1.15", label: "Priority (×1.15)" },
+  { value: "1.35", label: "Urgent (×1.35)" },
 ];
 
 /* ------------------------------ App state -------------------------------- */
@@ -522,13 +531,15 @@ function defaultState() {
     ms: {
       lead: "", cadence: "Retainer", months: "12", monthsCustom: 12, qbr: "Quarterly",
       hours: { onshore: 10, nearshore: 0, offshore: 0 },
+      rateClass: { onshore: "Senior Consultant", nearshore: "Nearshore Senior Dev", offshore: "Offshore Senior" },
     },
     tm: {
-      sla: "1", requests: 4, approval: "",
+      requests: 4, approval: "",
       lines: [
-        { rateClass: "Consultant", billing: "Core", hours: 20 },
+        { rateClass: "Consultant", billing: "Core", sla: "1", hours: 20 },
       ],
     },
+    pdfOptions: { discovery: true, project: true, ms: true, tm: true },
   };
 }
 
@@ -557,10 +568,17 @@ async function loadState() {
         state.phases = Object.assign(d.phases, parsed.phases || {});
         state.ms = Object.assign(d.ms, parsed.ms || {});
         state.ms.hours = Object.assign(d.ms.hours, (parsed.ms && parsed.ms.hours) || {});
+        state.ms.rateClass = Object.assign(d.ms.rateClass, (parsed.ms && parsed.ms.rateClass) || {});
         state.tm = Object.assign(d.tm, parsed.tm || {});
+        state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
         if (!parsed.rates || !parsed.rates.length) state.rates = d.rates;
         if (!parsed.team || !parsed.team.length) state.team = d.team;
         if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
+        // migrate old single tm.sla to per-line if present
+        if (parsed.tm && parsed.tm.sla && Array.isArray(state.tm.lines)) {
+          state.tm.lines.forEach(l => { if (!l.sla) l.sla = parsed.tm.sla; });
+        }
+        state.tm.lines.forEach(l => { if (!l.sla) l.sla = "1"; });
       }
     }
   } catch (e) { /* no saved state yet */ }
@@ -691,9 +709,9 @@ function msMonths() {
   return state.ms.months === "custom" ? (Number(state.ms.monthsCustom) || 12) : Number(state.ms.months);
 }
 
-function msRateForRegion(region, months) {
-  // piecewise-linear interpolation across the 6/12/24 month anchor pricing
-  const pts = [[6, region.rate6], [12, region.rate12], [24, region.rate24]];
+function msTermDiscount(months) {
+  // piecewise-linear interpolation across the 6/12/24 month discount anchors
+  const pts = MS_TERM_DISCOUNT;
   if (months <= pts[0][0]) return pts[0][1];
   if (months >= pts[2][0]) return pts[2][1];
   for (let i = 0; i < pts.length - 1; i++) {
@@ -703,22 +721,26 @@ function msRateForRegion(region, months) {
       return r1 + t * (r2 - r1);
     }
   }
-  return region.rate12;
+  return pts[1][1];
 }
 
 function computeMsTiers() {
   const months = msMonths();
   const weeks = Math.round(months * 4.32);
+  const discount = msTermDiscount(months);
   return MS_REGIONS.map(region => {
+    const rateClassName = state.ms.rateClass[region.key] || region.defaultRateClass;
+    const rateCard = rateFor(rateClassName);
+    const cost = rateCard ? rateCard.cost : 0;
+    const rate = (rateCard ? rateCard.priceMS : 0) * discount;
     const hrsPerWeek = Number(state.ms.hours[region.key]) || 0;
-    const rate = msRateForRegion(region, months);
     const weeklyRevenue = hrsPerWeek * rate;
     const totalHours = hrsPerWeek * weeks;
     const revenue = totalHours * rate;
-    const cost = totalHours * region.cost;
-    const margin = revenue > 0 ? (revenue - cost) / revenue : 0;
+    const totalCost = totalHours * cost;
+    const margin = revenue > 0 ? (revenue - totalCost) / revenue : 0;
     const isStandard = hrsPerWeek === 0 || region.standardHours.includes(hrsPerWeek);
-    return { ...region, hrsPerWeek, rate, weeklyRevenue, totalHours, revenue, cost, margin, isStandard };
+    return { ...region, rateClassName, hrsPerWeek, rate, cost, weeklyRevenue, totalHours, revenue, totalCost, margin, isStandard };
   });
 }
 
@@ -726,7 +748,7 @@ function computeMsTotals() {
   const months = msMonths();
   const tiers = computeMsTiers();
   const totalRevenue = tiers.reduce((a, t) => a + t.revenue, 0);
-  const totalCost = tiers.reduce((a, t) => a + t.cost, 0);
+  const totalCost = tiers.reduce((a, t) => a + t.totalCost, 0);
   const totalHours = tiers.reduce((a, t) => a + t.totalHours, 0);
   const margin = totalRevenue > 0 ? Math.round(((totalRevenue - totalCost) / totalRevenue) * 100) / 100 : 0;
   const blendedRate = totalHours > 0 ? totalRevenue / totalHours : 0;
@@ -737,13 +759,20 @@ function computeMsTotals() {
 
 /* ============================ Ad-Hoc T&M calc =========================== */
 
+function slaMultiplier(sla) {
+  return Number(sla) || 1;
+}
+function slaLabelFor(sla) {
+  const t = SLA_TIERS.find(s => s.value === String(sla));
+  return t ? t.label.replace(/\s*\(.*\)$/, "") : "Standard";
+}
+
 function computeTmLines() {
-  const slaMult = Number(state.tm.sla) || 1;
   return state.tm.lines.map(t => {
     const rate = rateFor(t.rateClass);
     const cost = rate ? rate.cost : 0;
     const basePrice = rate ? priceForBilling(rate, t.billing) : 0;
-    const price = basePrice * slaMult;
+    const price = basePrice * slaMultiplier(t.sla);
     const hours = Number(t.hours) || 0;
     const lineCost = hours * cost;
     const linePrice = hours * price;
@@ -1023,6 +1052,18 @@ function renderMsTiersTable() {
   body.innerHTML = "";
   const tiers = computeMsTiers();
   tiers.forEach(tier => {
+    const rateSel = document.createElement("select");
+    state.rates.forEach(r => {
+      const opt = document.createElement("option");
+      opt.value = r.name; opt.textContent = r.name;
+      if (r.name === tier.rateClassName) opt.selected = true;
+      rateSel.appendChild(opt);
+    });
+    rateSel.addEventListener("change", () => {
+      state.ms.rateClass[tier.key] = rateSel.value;
+      renderAll(); saveState();
+    });
+
     const hrsInput = document.createElement("input");
     hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = tier.hrsPerWeek;
     hrsInput.style.textAlign = "right";
@@ -1034,6 +1075,7 @@ function renderMsTiersTable() {
 
     const tr = el("tr", {}, [
       el("td", {}, tier.label + (tier.hrsPerWeek > 0 && !tier.isStandard ? " ⚠" : "")),
+      el("td", {}, rateSel),
       el("td", { class: "num" }, hrsInput),
       el("td", { class: "num" }, "$" + tier.rate.toFixed(0)),
       el("td", { class: "num" }, "$" + tier.cost.toFixed(2)),
@@ -1042,7 +1084,6 @@ function renderMsTiersTable() {
     ]);
     body.appendChild(tr);
   });
-  const hint = document.querySelector("#panel-track-ms .card:nth-child(3) .sub");
 }
 
 function renderMsKpis() {
@@ -1067,7 +1108,6 @@ function renderMsKpis() {
 /* ---- Ad-Hoc T&M track ---- */
 
 function renderTmFields() {
-  document.getElementById("tm_sla").value = state.tm.sla;
   document.getElementById("tm_requests").value = state.tm.requests;
   document.getElementById("tm_approval").value = state.tm.approval;
 }
@@ -1100,6 +1140,16 @@ function renderTmTable() {
     });
     billSel.addEventListener("change", () => { t.billing = billSel.value; renderAll(); saveState(); });
     tr.appendChild(el("td", {}, billSel));
+
+    const slaSel = document.createElement("select");
+    SLA_TIERS.forEach(s => {
+      const opt = document.createElement("option");
+      opt.value = s.value; opt.textContent = s.label;
+      if (s.value === String(t.sla)) opt.selected = true;
+      slaSel.appendChild(opt);
+    });
+    slaSel.addEventListener("change", () => { t.sla = slaSel.value; renderAll(); saveState(); });
+    tr.appendChild(el("td", {}, slaSel));
 
     const hrsInput = document.createElement("input");
     hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = t.hours;
@@ -1281,6 +1331,17 @@ function buildCoverAndDiscoveryPage() {
   const disc = state.discovery;
   const track = TRACKS.find(t => t.key === state.activeTrack);
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const discoveryBlock = state.pdfOptions.discovery ? `
+    <h2 class="pg-h2">Recommended track</h2>
+    <p class="pg-note" style="font-size:12.5px;">Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the <b>${escapeHtml(track ? track.label : "—")}</b> track — ${escapeHtml(track ? track.desc : "")}</p>
+    ${pdfKpis([
+      ["Discovery fee", fmtMoney(disc.fee)],
+      ["Sessions", String(disc.sessions)],
+      ["Credits toward", track ? track.creditsTo : "—"],
+      ["Status", disc.status],
+    ])}
+    <p class="pg-note">Discovery is non-refundable but always credits forward against the client's chosen track. The fee is earned through delivery of the discovery report — not contingent on the client proceeding to any track.</p>
+  ` : "";
   return `
   <div class="pg">
     ${pdfHeader("Engagement Scoping & Estimate", "Prepared " + today)}
@@ -1296,20 +1357,13 @@ function buildCoverAndDiscoveryPage() {
       <div><span class="k">Anticipated start</span><span class="v">${p.startdate ? fmtDate(new Date(p.startdate + "T00:00:00")) : "—"}</span></div>
       <div><span class="k">Legal approver</span><span class="v">${escapeHtml(p.legalappr || "—")}</span></div>
     </div>
-    <h2 class="pg-h2">Recommended track</h2>
-    <p class="pg-note" style="font-size:12.5px;">Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the <b>${escapeHtml(track ? track.label : "—")}</b> track — ${escapeHtml(track ? track.desc : "")}</p>
-    ${pdfKpis([
-      ["Discovery fee", fmtMoney(disc.fee)],
-      ["Sessions", String(disc.sessions)],
-      ["Credits toward", track ? track.creditsTo : "—"],
-      ["Status", disc.status],
-    ])}
-    <p class="pg-note">Discovery is non-refundable but always credits forward against the client's chosen track. The fee is earned through delivery of the discovery report — not contingent on the client proceeding to any track.</p>
+    ${discoveryBlock}
     ${pdfFooter()}
   </div>`;
 }
 
 function buildProjectPages() {
+  if (!state.pdfOptions.project) return "";
   const totals = computeProjectTotals();
   if (totals.totalHours <= 0) return "";
   const approval = marginApproval(totals.margin);
@@ -1367,6 +1421,7 @@ function buildProjectPages() {
 }
 
 function buildMsPage() {
+  if (!state.pdfOptions.ms) return "";
   const totals = computeMsTotals();
   if (totals.totalHours <= 0) return "";
   const approval = marginApproval(totals.margin);
@@ -1401,15 +1456,17 @@ function buildMsPage() {
 }
 
 function buildTmPage() {
+  if (!state.pdfOptions.tm) return "";
   const totals = computeTmTotals();
   if (totals.totalHours <= 0) return "";
   const approval = marginApproval(totals.margin);
   const p = state.project;
-  const slaLabel = { "1": "Standard", "1.15": "Priority", "1.35": "Urgent" }[state.tm.sla] || "Standard";
+  const tiersUsed = Array.from(new Set(totals.lines.map(l => slaLabelFor(l.sla)))).join(", ");
   const rows = totals.lines.map(l => `
     <tr>
       <td>${escapeHtml(l.rateClass)}</td>
       <td>${escapeHtml(l.billing)}</td>
+      <td>${escapeHtml(slaLabelFor(l.sla))}</td>
       <td class="num">${Math.round(l.hours)}</td>
       <td class="num">$${l.price.toFixed(0)}</td>
       <td class="num">${fmtMoney(l.linePrice)}</td>
@@ -1418,7 +1475,7 @@ function buildTmPage() {
   return `
   <div class="pg">
     ${pdfHeader("Ad-Hoc T&M — Client Portal", escapeHtml(p.project || ""))}
-    <p class="pg-note" style="font-size:12.5px;">SLA tier: <b>${slaLabel}</b> · Est. requests/month: ${escapeHtml(String(state.tm.requests))} · Fulfilled from the shared resource pool, no dedicated resource assigned.</p>
+    <p class="pg-note" style="font-size:12.5px;">SLA tiers in this quote: <b>${escapeHtml(tiersUsed || "Standard")}</b> · Est. requests/month: ${escapeHtml(String(state.tm.requests))} · Fulfilled from the shared resource pool, no dedicated resource assigned.</p>
     ${pdfKpis([
       ["Block price", fmtMoney(totals.totalPrice)],
       ["Block hours", Math.round(totals.totalHours).toLocaleString("en-US")],
@@ -1427,7 +1484,7 @@ function buildTmPage() {
     ])}
     <h2 class="pg-h2">Estimated lines</h2>
     <table class="pg-table">
-      <thead><tr><th>Rate class</th><th>Billing</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr></thead>
+      <thead><tr><th>Rate class</th><th>Billing</th><th>SLA tier</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="pg-note">This track replaces all unstructured T&amp;M and ad-hoc engagements. Any exception requires DC Leadership approval${state.tm.approval ? " (" + escapeHtml(state.tm.approval) + ")" : ""}. Discovery fee credits toward the SLA tier setup fee or first queue credit.</p>
@@ -1552,9 +1609,16 @@ async function init() {
   document.getElementById("ms_qbr").addEventListener("change", e => { state.ms.qbr = e.target.value; saveState(); });
 
   // Ad-Hoc T&M bindings
-  document.getElementById("tm_sla").addEventListener("change", e => { state.tm.sla = e.target.value; renderAll(); saveState(); });
   document.getElementById("tm_requests").addEventListener("input", e => { state.tm.requests = Number(e.target.value) || 0; saveState(); });
   document.getElementById("tm_approval").addEventListener("input", e => { state.tm.approval = e.target.value; saveState(); });
+
+  // PDF export option bindings
+  const pdfOptMap = { pdf_opt_discovery: "discovery", pdf_opt_project: "project", pdf_opt_ms: "ms", pdf_opt_tm: "tm" };
+  Object.entries(pdfOptMap).forEach(([id, key]) => {
+    const cb = document.getElementById(id);
+    cb.checked = !!state.pdfOptions[key];
+    cb.addEventListener("change", () => { state.pdfOptions[key] = cb.checked; saveState(); });
+  });
 }
 
 init();
