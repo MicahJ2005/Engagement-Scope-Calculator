@@ -258,6 +258,12 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
     </div>
 
     <div class="card">
+      <h2>Pricing model</h2>
+      <p class="sub">Choose how this Project is priced. Both options share the same phase timeline, KPIs, and PDF export below.</p>
+      <div class="track-cards" id="projectModeCards" style="grid-template-columns:1fr 1fr;"></div>
+    </div>
+
+    <div class="card">
       <h2>Phase &amp; sprint durations</h2>
       <p class="sub">Sets the calendar timeline used for the infographic and phase-based pricing. Start date comes from Project Info.</p>
       <div class="grid cols-4">
@@ -270,7 +276,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="hourlyTeamCard">
       <h2>Project team</h2>
       <p class="sub">Add each resource, pick a rate class and billing type, then allocate their hours across phases.</p>
       <div class="tbl-wrap">
@@ -299,6 +305,32 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       </div>
       <div class="row-actions">
         <button class="btn btn-sm btn-primary" id="btnAddResource">+ Add resource</button>
+      </div>
+    </div>
+
+    <div class="card" id="fixedTeamCard" style="display:none;">
+      <h2>Deliverables (Fixed Bid)</h2>
+      <p class="sub">Add each functionality or deliverable you're bidding at a fixed price. Estimate the internal effort (hours + rate class) so cost and margin still track, then set the client-facing fixed price per line — it doesn't have to equal hours × rate.</p>
+      <div class="tbl-wrap">
+        <table id="fixedTable">
+          <thead>
+            <tr>
+              <th style="min-width:160px;">Functionality</th>
+              <th style="min-width:200px;">Deliverable</th>
+              <th style="min-width:110px;">Phase</th>
+              <th class="num">Est. hours</th>
+              <th style="min-width:150px;">Rate class</th>
+              <th class="num">Line cost</th>
+              <th class="num" style="min-width:130px;">Fixed price</th>
+              <th class="num">Margin</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="fixedBody"></tbody>
+        </table>
+      </div>
+      <div class="row-actions">
+        <button class="btn btn-sm btn-primary" id="btnAddFixedLine">+ Add functionality</button>
       </div>
     </div>
 
@@ -492,6 +524,12 @@ const TRACKS = [
   { key: "tm", label: "Ad-Hoc T&M", tagline: "Replaces unstructured T&M", desc: "FIFO queue, SLA response tiers, shared resource pool. No dedicated resource assigned.", creditsTo: "SLA tier setup fee / first queue credit" },
 ];
 
+// Project pricing sub-models
+const PROJECT_MODES = [
+  { key: "hourly", label: "Hourly (T&M)", desc: "Resource × phase hours, priced straight from the rate card. Bills for time actually worked." },
+  { key: "fixed", label: "Fixed Bid", desc: "Named functionality/deliverable lines, each with its own client-facing fixed price. Bills the agreed price regardless of hours worked." },
+];
+
 // Managed Services delivery tiers — cost & price now come live from the Rate Card
 // (Managed Svcs columns). Term-length discount anchors mirror the DC Way calculator's
 // standard subscription pricing (6 mo = full rate, 12 mo ≈ -4%, 24 mo ≈ -12%).
@@ -522,11 +560,15 @@ function defaultState() {
       name: r[0], cost: r[1], priceCore: r[2], priceAdvisory: r[3], priceMS: r[4]
     })),
     phases: { planning_wk: 1, discovery_wk: 2, pb_sprints: 6, sprint_len: 2, deploy_wk: 1, wrapup_wk: 1 },
+    projectMode: "hourly",
     team: [
       { role: "Solution Architect", rateClass: "Director", billing: "Core", planning: 20, discovery: 40, pb: 60, deploy: 10, wrapup: 8 },
       { role: "SBA Lead", rateClass: "Manager", billing: "Core", planning: 8, discovery: 30, pb: 160, deploy: 30, wrapup: 12 },
       { role: "Consultant", rateClass: "Consultant", billing: "Core", planning: 4, discovery: 20, pb: 200, deploy: 20, wrapup: 8 },
       { role: "Project Manager", rateClass: "Senior Consultant", billing: "Core", planning: 8, discovery: 16, pb: 120, deploy: 16, wrapup: 16 },
+    ],
+    fixedLines: [
+      { name: "Custom object build-out", deliverable: "New object with fields, page layouts, and record-triggered automation", phase: "pb", hours: 40, rateClass: "Consultant", price: 9000 },
     ],
     ms: {
       lead: "", cadence: "Retainer", months: "12", monthsCustom: 12, qbr: "Quarterly",
@@ -550,7 +592,7 @@ let state = defaultState();
 async function saveState() {
   try {
     if (window.storage) {
-      await window.storage.set("dc-estimate-state-v2", JSON.stringify(state), false);
+      await window.storage.set("dc-estimate-state-v3", JSON.stringify(state), false);
     }
   } catch (e) { console.warn("save failed", e); }
 }
@@ -558,7 +600,7 @@ async function saveState() {
 async function loadState() {
   try {
     if (window.storage) {
-      const res = await window.storage.get("dc-estimate-state-v2", false);
+      const res = await window.storage.get("dc-estimate-state-v3", false);
       if (res && res.value) {
         const parsed = JSON.parse(res.value);
         const d = defaultState();
@@ -571,14 +613,41 @@ async function loadState() {
         state.ms.rateClass = Object.assign(d.ms.rateClass, (parsed.ms && parsed.ms.rateClass) || {});
         state.tm = Object.assign(d.tm, parsed.tm || {});
         state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
+        state.projectMode = parsed.projectMode === "fixed" ? "fixed" : "hourly";
         if (!parsed.rates || !parsed.rates.length) state.rates = d.rates;
         if (!parsed.team || !parsed.team.length) state.team = d.team;
+        if (!parsed.fixedLines || !parsed.fixedLines.length) state.fixedLines = d.fixedLines;
         if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
         // migrate old single tm.sla to per-line if present
         if (parsed.tm && parsed.tm.sla && Array.isArray(state.tm.lines)) {
           state.tm.lines.forEach(l => { if (!l.sla) l.sla = parsed.tm.sla; });
         }
         state.tm.lines.forEach(l => { if (!l.sla) l.sla = "1"; });
+        state.fixedLines.forEach(l => { if (!l.phase) l.phase = "pb"; });
+      } else {
+        // no saved v3 state yet — try to migrate from the previous version's key
+        try {
+          const old = await window.storage.get("dc-estimate-state-v2", false);
+          if (old && old.value) {
+            const parsed = JSON.parse(old.value);
+            const d = defaultState();
+            state = Object.assign(d, parsed);
+            state.discovery = Object.assign(d.discovery, parsed.discovery || {});
+            state.project = Object.assign(d.project, parsed.project || {});
+            state.phases = Object.assign(d.phases, parsed.phases || {});
+            state.ms = Object.assign(d.ms, parsed.ms || {});
+            state.ms.hours = Object.assign(d.ms.hours, (parsed.ms && parsed.ms.hours) || {});
+            state.ms.rateClass = Object.assign(d.ms.rateClass, (parsed.ms && parsed.ms.rateClass) || {});
+            state.tm = Object.assign(d.tm, parsed.tm || {});
+            state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
+            state.projectMode = "hourly";
+            state.fixedLines = d.fixedLines;
+            if (!parsed.rates || !parsed.rates.length) state.rates = d.rates;
+            if (!parsed.team || !parsed.team.length) state.team = d.team;
+            if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
+            state.tm.lines.forEach(l => { if (!l.sla) l.sla = "1"; });
+          }
+        } catch (e2) { /* nothing to migrate */ }
       }
     }
   } catch (e) { /* no saved state yet */ }
@@ -635,6 +704,19 @@ function computeTeamLines() {
   });
 }
 
+function computeFixedLines() {
+  return state.fixedLines.map(t => {
+    const rate = rateFor(t.rateClass);
+    const cost = rate ? rate.cost : 0;
+    const hours = Number(t.hours) || 0;
+    const lineCost = hours * cost;
+    const suggestedPrice = rate ? hours * rate.priceCore : 0;
+    const price = Number(t.price) || 0;
+    const margin = price > 0 ? (price - lineCost) / price : 0;
+    return { ...t, cost, hours, lineCost, suggestedPrice, price, margin };
+  });
+}
+
 function computePhaseSummary(lines) {
   return PHASE_KEYS.map((key, i) => {
     let hours = 0, price = 0;
@@ -647,13 +729,39 @@ function computePhaseSummary(lines) {
   });
 }
 
+function computeFixedPhaseSummary(lines) {
+  return PHASE_KEYS.map((key, i) => {
+    let hours = 0, price = 0;
+    lines.forEach(l => {
+      if (l.phase === key) {
+        hours += l.hours;
+        price += l.price;
+      }
+    });
+    return { key, label: PHASES[i], hours, price };
+  });
+}
+
 function computeProjectTotals() {
+  if (state.projectMode === "fixed") {
+    const lines = computeFixedLines();
+    const totalHours = lines.reduce((a, l) => a + l.hours, 0);
+    const totalCost = lines.reduce((a, l) => a + l.lineCost, 0);
+    const totalPrice = lines.reduce((a, l) => a + l.price, 0);
+    const margin = totalPrice > 0 ? Math.round(((totalPrice - totalCost) / totalPrice) * 100) / 100 : 0;
+    return { mode: "fixed", lines, totalHours, totalCost, totalPrice, margin };
+  }
   const lines = computeTeamLines();
   const totalHours = lines.reduce((a, l) => a + l.totalHours, 0);
   const totalCost = lines.reduce((a, l) => a + l.lineCost, 0);
   const totalPrice = lines.reduce((a, l) => a + l.linePrice, 0);
   const margin = totalPrice > 0 ? Math.round(((totalPrice - totalCost) / totalPrice) * 100) / 100 : 0;
-  return { lines, totalHours, totalCost, totalPrice, margin };
+  return { mode: "hourly", lines, totalHours, totalCost, totalPrice, margin };
+}
+
+function computeActivePhaseSummary() {
+  const totals = computeProjectTotals();
+  return totals.mode === "fixed" ? computeFixedPhaseSummary(totals.lines) : computePhaseSummary(totals.lines);
 }
 
 /* ---- Timeline dates ---- */
@@ -847,6 +955,32 @@ function renderTrackCards() {
   });
 }
 
+/* ---- Project pricing model selector cards ---- */
+
+function renderProjectModeCards() {
+  const wrap = document.getElementById("projectModeCards");
+  wrap.innerHTML = "";
+  PROJECT_MODES.forEach(m => {
+    const card = el("div", { class: "track-card" + (state.projectMode === m.key ? " selected" : "") }, [
+      el("div", { class: "tc-radio" }),
+      el("div", { class: "tc-title" }, m.label),
+      el("div", { class: "tc-desc" }, m.desc),
+    ]);
+    card.addEventListener("click", () => {
+      state.projectMode = m.key;
+      renderAll(); saveState();
+    });
+    wrap.appendChild(card);
+  });
+}
+
+function updateProjectModeVisibility() {
+  const hourlyCard = document.getElementById("hourlyTeamCard");
+  const fixedCard = document.getElementById("fixedTeamCard");
+  if (hourlyCard) hourlyCard.style.display = state.projectMode === "fixed" ? "none" : "";
+  if (fixedCard) fixedCard.style.display = state.projectMode === "fixed" ? "" : "none";
+}
+
 /* ---- Project Info + Discovery bindings ---- */
 
 function bindProjectFields() {
@@ -907,12 +1041,14 @@ function renderRatesTable() {
   });
 }
 
-/* ---- Project track ---- */
+/* ---- Project track: hourly (T&M) ---- */
 
 function renderTeamTable() {
   const body = document.getElementById("teamBody");
   body.innerHTML = "";
-  const { lines } = computeProjectTotals();
+  const totals = computeProjectTotals();
+  if (totals.mode !== "hourly") return;
+  const lines = totals.lines;
 
   state.team.forEach((t, idx) => {
     const line = lines[idx];
@@ -962,6 +1098,77 @@ function renderTeamTable() {
 
     const rm = el("button", { class: "remove-btn", title: "Remove resource" }, "×");
     rm.addEventListener("click", () => { state.team.splice(idx, 1); renderAll(); saveState(); });
+    tr.appendChild(el("td", {}, rm));
+
+    body.appendChild(tr);
+  });
+}
+
+/* ---- Project track: fixed bid ---- */
+
+function renderFixedTable() {
+  const body = document.getElementById("fixedBody");
+  body.innerHTML = "";
+  const lines = computeFixedLines();
+
+  state.fixedLines.forEach((t, idx) => {
+    const line = lines[idx];
+    const tr = el("tr");
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text"; nameInput.value = t.name; nameInput.placeholder = "e.g. Lead routing automation";
+    nameInput.addEventListener("input", () => { t.name = nameInput.value; saveState(); });
+    tr.appendChild(el("td", {}, nameInput));
+
+    const delivInput = document.createElement("input");
+    delivInput.type = "text"; delivInput.value = t.deliverable; delivInput.placeholder = "e.g. Flow + validation rules, tested & documented";
+    delivInput.addEventListener("input", () => { t.deliverable = delivInput.value; saveState(); });
+    tr.appendChild(el("td", {}, delivInput));
+
+    const phaseSel = document.createElement("select");
+    PHASE_KEYS.forEach((k, i) => {
+      const opt = document.createElement("option");
+      opt.value = k; opt.textContent = PHASES[i];
+      if (k === t.phase) opt.selected = true;
+      phaseSel.appendChild(opt);
+    });
+    phaseSel.addEventListener("change", () => { t.phase = phaseSel.value; renderAll(); saveState(); });
+    tr.appendChild(el("td", {}, phaseSel));
+
+    const hrsInput = document.createElement("input");
+    hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = t.hours;
+    hrsInput.style.textAlign = "right";
+    hrsInput.addEventListener("input", () => { t.hours = Number(hrsInput.value) || 0; renderAll(); saveState(); });
+    tr.appendChild(el("td", { class: "num" }, hrsInput));
+
+    const rateSel = document.createElement("select");
+    state.rates.forEach(r => {
+      const opt = document.createElement("option");
+      opt.value = r.name; opt.textContent = r.name;
+      if (r.name === t.rateClass) opt.selected = true;
+      rateSel.appendChild(opt);
+    });
+    rateSel.addEventListener("change", () => { t.rateClass = rateSel.value; renderAll(); saveState(); });
+    tr.appendChild(el("td", {}, rateSel));
+
+    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.lineCost)));
+
+    const priceWrap = document.createElement("div");
+    const priceInput = document.createElement("input");
+    priceInput.type = "number"; priceInput.min = "0"; priceInput.value = t.price;
+    priceInput.style.textAlign = "right";
+    priceInput.addEventListener("input", () => { t.price = Number(priceInput.value) || 0; renderAll(); saveState(); });
+    priceWrap.appendChild(priceInput);
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = "sugg. " + fmtMoney(line.suggestedPrice);
+    priceWrap.appendChild(hint);
+    tr.appendChild(el("td", { class: "num" }, priceWrap));
+
+    tr.appendChild(el("td", { class: "num" }, el("span", { class: "pill " + marginPillClass(line.margin) }, line.price > 0 ? fmtPct(line.margin) : "—")));
+
+    const rm = el("button", { class: "remove-btn", title: "Remove line" }, "×");
+    rm.addEventListener("click", () => { state.fixedLines.splice(idx, 1); renderAll(); saveState(); });
     tr.appendChild(el("td", {}, rm));
 
     body.appendChild(tr);
@@ -1233,7 +1440,7 @@ function updateTrackDots() {
   const pt = computeProjectTotals();
   const mt = computeMsTotals();
   const tt = computeTmTotals();
-  document.getElementById("dot-project").classList.toggle("on", pt.totalHours > 0);
+  document.getElementById("dot-project").classList.toggle("on", pt.totalHours > 0 || pt.totalPrice > 0);
   document.getElementById("dot-ms").classList.toggle("on", mt.totalHours > 0);
   document.getElementById("dot-tm").classList.toggle("on", tt.totalHours > 0);
 }
@@ -1242,7 +1449,10 @@ function renderAll() {
   renderTrackCards();
   renderDiscoveryCreditDisplay();
   renderRatesTable();
+  renderProjectModeCards();
+  updateProjectModeVisibility();
   renderTeamTable();
+  renderFixedTable();
   renderProjectKpis();
   const segs = buildTimelinePhases();
   renderGantt("ganttWrap", segs);
@@ -1365,22 +1575,40 @@ function buildCoverAndDiscoveryPage() {
 function buildProjectPages() {
   if (!state.pdfOptions.project) return "";
   const totals = computeProjectTotals();
-  if (totals.totalHours <= 0) return "";
+  if (totals.totalHours <= 0 && totals.totalPrice <= 0) return "";
   const approval = marginApproval(totals.margin);
-  const phaseSummary = computePhaseSummary(totals.lines);
+  const phaseSummary = computeActivePhaseSummary();
   const segs = buildTimelinePhases();
   const svgMarkup = buildStandaloneGanttSvg(segs, 950);
   const p = state.project;
+  const isFixed = totals.mode === "fixed";
+  const pricingLabel = isFixed ? "Fixed Bid" : "Time & Materials";
 
-  const teamRows = totals.lines.map(l => `
-    <tr>
-      <td>${escapeHtml(l.role)}</td>
-      <td>${escapeHtml(l.rateClass)}</td>
-      <td>${escapeHtml(l.billing)}</td>
-      <td class="num">${Math.round(l.totalHours)}</td>
-      <td class="num">$${l.price.toFixed(0)}</td>
-      <td class="num">${fmtMoney(l.linePrice)}</td>
-    </tr>`).join("");
+  const detailRows = isFixed
+    ? totals.lines.map(l => `
+      <tr>
+        <td>${escapeHtml(l.name || "Untitled")}</td>
+        <td>${escapeHtml(l.deliverable || "")}</td>
+        <td>${escapeHtml(PHASES[PHASE_KEYS.indexOf(l.phase)] || "")}</td>
+        <td class="num">${Math.round(l.hours)}</td>
+        <td class="num">${fmtMoney(l.price)}</td>
+      </tr>`).join("")
+    : totals.lines.map(l => `
+      <tr>
+        <td>${escapeHtml(l.role)}</td>
+        <td>${escapeHtml(l.rateClass)}</td>
+        <td>${escapeHtml(l.billing)}</td>
+        <td class="num">${Math.round(l.totalHours)}</td>
+        <td class="num">$${l.price.toFixed(0)}</td>
+        <td class="num">${fmtMoney(l.linePrice)}</td>
+      </tr>`).join("");
+
+  const detailHeader = isFixed
+    ? `<tr><th>Functionality</th><th>Deliverable</th><th>Phase</th><th class="num">Est. hours</th><th class="num">Fixed price</th></tr>`
+    : `<tr><th>Role</th><th>Rate class</th><th>Billing</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr>`;
+
+  const detailTitle = isFixed ? "Deliverables" : "Project team";
+
   const phaseRows = phaseSummary.map(ph => `
     <tr>
       <td><span class="sw" style="background:${PHASE_COLORS[ph.key]}"></span>${ph.label}</td>
@@ -1391,6 +1619,7 @@ function buildProjectPages() {
   return `
   <div class="pg">
     ${pdfHeader("Project — Scoped Deliverable", escapeHtml(p.project || ""))}
+    <p class="pg-note" style="font-size:12.5px;">Pricing model: <b>${pricingLabel}</b></p>
     ${pdfKpis([
       ["Project price", fmtMoney(totals.totalPrice)],
       ["Project hours", Math.round(totals.totalHours).toLocaleString("en-US")],
@@ -1404,10 +1633,10 @@ function buildProjectPages() {
         <tr class="pg-total"><td>Total</td><td class="num">${Math.round(totals.totalHours)}</td><td class="num">${fmtMoney(totals.totalPrice)}</td></tr>
       </tbody>
     </table>
-    <h2 class="pg-h2">Project team</h2>
+    <h2 class="pg-h2">${detailTitle}</h2>
     <table class="pg-table">
-      <thead><tr><th>Role</th><th>Rate class</th><th>Billing</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr></thead>
-      <tbody>${teamRows}</tbody>
+      <thead>${detailHeader}</thead>
+      <tbody>${detailRows}</tbody>
     </table>
     ${pdfFooter()}
   </div>
@@ -1557,12 +1786,16 @@ async function init() {
     state.team.push({ role: "New resource", rateClass: state.rates[0].name, billing: "Core", planning: 0, discovery: 0, pb: 0, deploy: 0, wrapup: 0 });
     renderAll(); saveState();
   });
+  document.getElementById("btnAddFixedLine").addEventListener("click", () => {
+    state.fixedLines.push({ name: "", deliverable: "", phase: "pb", hours: 0, rateClass: state.rates[0].name, price: 0 });
+    renderAll(); saveState();
+  });
   document.getElementById("btnRatesDefault").addEventListener("click", () => {
     state.rates = defaultState().rates;
     renderAll(); saveState();
   });
   document.getElementById("btnAddTmLine").addEventListener("click", () => {
-    state.tm.lines.push({ rateClass: state.rates[0].name, billing: "Core", hours: 0 });
+    state.tm.lines.push({ rateClass: state.rates[0].name, billing: "Core", sla: "1", hours: 0 });
     renderAll(); saveState();
   });
   document.getElementById("btnReset").addEventListener("click", () => {
