@@ -452,6 +452,27 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
   <div class="panel" id="panel-summary">
 
     <div class="card">
+      <h2>Engagement rollup</h2>
+      <p class="sub">Combined view across every service line on this engagement. Uncheck a row to exclude it from the totals — this is independent from the export checkboxes below, so you can leave a line out of the rollup while still including it in the PDF/Word export (or vice versa).</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px;">Incl.</th>
+              <th>Service</th>
+              <th class="num">Price</th>
+              <th class="num">Cost</th>
+              <th class="num">Hours</th>
+              <th class="num">Margin</th>
+            </tr>
+          </thead>
+          <tbody id="rollupBody"></tbody>
+        </table>
+      </div>
+      <p class="footnote">Discovery has no tracked delivery cost in this app, so it rolls up at its full fee with $0 cost. Managed Services contributes its full contract value (not the monthly invoice) so every line is on the same total-value basis.</p>
+    </div>
+
+    <div class="card">
       <h2>Discovery</h2>
       <div class="grid cols-4">
         <div class="field"><label>Fee</label><div class="kpi" style="padding:10px 12px;"><div class="value small" id="sum_disc_fee">$0</div></div></div>
@@ -506,11 +527,11 @@ window.__DC_LOGO__ = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAiAAAABUCAYA
 
 const DEFAULT_RATES = [
   // name, cost, price
-  ["Executive", 120.36, 325],
-  ["Director", 98.66, 275],
+  ["Executive", 120.36, 425],
+  ["Director", 98.66, 325],
   ["Manager", 98.66, 250],
-  ["Senior Consultant", 98.66, 250],
-  ["Consultant", 83.31, 230],
+  ["Senior Consultant", 98.66, 225],
+  ["Consultant", 83.31, 200],
   ["Independent (1099) — Tier 1", 155, 275],
   ["Independent (1099) — Tier 2", 125, 250],
   ["Independent (1099) — Tier 3", 105, 210],
@@ -607,6 +628,7 @@ function defaultState() {
       ],
     },
     pdfOptions: { discovery: true, project: true, ms: true, tm: true },
+    rollupOptions: { discovery: true, project: true, ms: true, tm: true },
   };
 }
 
@@ -654,6 +676,7 @@ async function loadState() {
         state.ms.rateClass = Object.assign(d.ms.rateClass, (parsed.ms && parsed.ms.rateClass) || {});
         state.tm = Object.assign(d.tm, parsed.tm || {});
         state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
+        state.rollupOptions = Object.assign(d.rollupOptions, parsed.rollupOptions || {});
         state.projectMode = parsed.projectMode === "fixed" ? "fixed" : "hourly";
         state.projectRange = Object.assign(d.projectRange, parsed.projectRange || {});
 
@@ -701,13 +724,11 @@ function rateFor(rateClassName) {
   return state.rates.find(r => r.name === rateClassName) || state.rates[0];
 }
 function marginApproval(margin) {
-  if (margin >= 0.64) return { label: "None needed — OK to present", tone: "good" };
-  if (margin >= 0.55) return { label: "Approval required: Leadership (COO)", tone: "warn" };
-  return { label: "Approval required: COO + Owner", tone: "bad" };
+  if (margin >= 0.60) return { label: "None needed — OK to present", tone: "good" };
+  return { label: "Approval required: Leadership (COO)", tone: "bad" };
 }
 function marginPillClass(margin) {
-  if (margin >= 0.64) return "pill-good";
-  if (margin >= 0.55) return "pill-warn";
+  if (margin >= 0.60) return "pill-good";
   return "pill-bad";
 }
 
@@ -949,6 +970,38 @@ function computeTmTotals() {
   const totalPrice = lines.reduce((a, l) => a + l.linePrice, 0);
   const margin = totalPrice > 0 ? Math.round(((totalPrice - totalCost) / totalPrice) * 100) / 100 : 0;
   return { lines, totalHours, totalCost, totalPrice, margin };
+}
+
+/* ============================ Engagement rollup =========================== */
+
+// Combined view across all four service lines. Discovery has no tracked delivery
+// cost in this app, so it rolls up at its full fee with $0 cost (100% margin).
+// Managed Services contributes its full contract value (not the monthly invoice),
+// so all four lines are on an apples-to-apples "total value of this line" basis.
+function computeRollup() {
+  const disc = state.discovery;
+  const pt = computeProjectTotals();
+  const mt = computeMsTotals();
+  const tt = computeTmTotals();
+
+  const rows = [
+    { key: "discovery", label: "Paid Discovery", price: Number(disc.fee) || 0, cost: 0, hours: 0 },
+    { key: "project", label: "Project", price: pt.totalPrice, cost: pt.totalCost, hours: pt.totalHours },
+    { key: "ms", label: "Managed Services (contract value)", price: mt.totalRevenue, cost: mt.totalCost, hours: mt.totalHours },
+    { key: "tm", label: "Ad-Hoc T&M", price: tt.totalPrice, cost: tt.totalCost, hours: tt.totalHours },
+  ].map(r => ({
+    ...r,
+    margin: r.price > 0 ? (r.price - r.cost) / r.price : 0,
+    included: state.rollupOptions[r.key] !== false,
+  }));
+
+  const includedRows = rows.filter(r => r.included);
+  const totalPrice = includedRows.reduce((a, r) => a + r.price, 0);
+  const totalCost = includedRows.reduce((a, r) => a + r.cost, 0);
+  const totalHours = includedRows.reduce((a, r) => a + r.hours, 0);
+  const totalMargin = totalPrice > 0 ? (totalPrice - totalCost) / totalPrice : 0;
+
+  return { rows, totalPrice, totalCost, totalHours, totalMargin };
 }
 
 /* ============================== Rendering ================================ */
@@ -1575,6 +1628,41 @@ function fillKpiRow(containerId, items) {
   items.forEach(([label, value, cls]) => wrap.appendChild(kpiCard(label, value, cls)));
 }
 
+function renderRollup() {
+  const rollup = computeRollup();
+  const body = document.getElementById("rollupBody");
+  body.innerHTML = "";
+
+  rollup.rows.forEach(r => {
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = r.included;
+    cb.addEventListener("change", () => {
+      state.rollupOptions[r.key] = cb.checked;
+      renderAll(); saveState();
+    });
+
+    const tr = el("tr", { style: r.included ? "" : "opacity:0.45;" }, [
+      el("td", {}, cb),
+      el("td", {}, r.label),
+      el("td", { class: "num" }, fmtMoney(r.price)),
+      el("td", { class: "num" }, fmtMoney(r.cost)),
+      el("td", { class: "num" }, Math.round(r.hours).toLocaleString("en-US")),
+      el("td", { class: "num" }, r.price > 0 ? el("span", { class: "pill " + marginPillClass(r.margin) }, fmtPct(r.margin)) : "—"),
+    ]);
+    body.appendChild(tr);
+  });
+
+  body.appendChild(el("tr", { style: "font-weight:bold;border-top:2px solid #EAEAEA;" }, [
+    el("td", {}, ""),
+    el("td", {}, "Total"),
+    el("td", { class: "num" }, fmtMoney(rollup.totalPrice)),
+    el("td", { class: "num" }, fmtMoney(rollup.totalCost)),
+    el("td", { class: "num" }, Math.round(rollup.totalHours).toLocaleString("en-US")),
+    el("td", { class: "num" }, fmtPct(rollup.totalMargin)),
+  ]));
+}
+
 function renderSummary() {
   const disc = state.discovery;
   document.getElementById("sum_disc_fee").textContent = fmtMoney(disc.fee);
@@ -1650,6 +1738,7 @@ function renderAll(opts) {
   renderTmFields();
   if (!opts.skipTm) renderTmTable();
   renderTmKpis();
+  renderRollup();
   renderSummary();
   updateTrackDots();
 
@@ -1739,6 +1828,24 @@ function buildCoverAndDiscoveryPage() {
   const disc = state.discovery;
   const track = TRACKS.find(t => t.key === state.activeTrack);
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const rollup = computeRollup();
+  const rollupRows = rollup.rows.map(r => `
+    <tr${r.included ? "" : ' style="opacity:0.45;"'}>
+      <td>${escapeHtml(r.label)}${r.included ? "" : " (excluded)"}</td>
+      <td class="num">${fmtMoney(r.price)}</td>
+      <td class="num">${fmtMoney(r.cost)}</td>
+      <td class="num">${Math.round(r.hours).toLocaleString("en-US")}</td>
+      <td class="num">${r.price > 0 ? fmtPct(r.margin) : "—"}</td>
+    </tr>`).join("");
+  const rollupBlock = `
+    <h2 class="pg-h2">Engagement rollup</h2>
+    <table class="pg-table">
+      <thead><tr><th>Service</th><th class="num">Price</th><th class="num">Cost</th><th class="num">Hours</th><th class="num">Margin</th></tr></thead>
+      <tbody>${rollupRows}
+        <tr class="pg-total"><td>Total</td><td class="num">${fmtMoney(rollup.totalPrice)}</td><td class="num">${fmtMoney(rollup.totalCost)}</td><td class="num">${Math.round(rollup.totalHours).toLocaleString("en-US")}</td><td class="num">${fmtPct(rollup.totalMargin)}</td></tr>
+      </tbody>
+    </table>
+  `;
   const discoveryBlock = state.pdfOptions.discovery ? `
     <h2 class="pg-h2">Recommended track</h2>
     <p class="pg-note" style="font-size:12.5px;">Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the <b>${escapeHtml(track ? track.label : "—")}</b> track — ${escapeHtml(track ? track.desc : "")}</p>
@@ -1765,6 +1872,7 @@ function buildCoverAndDiscoveryPage() {
       <div><span class="k">Anticipated start</span><span class="v">${p.startdate ? fmtDate(new Date(p.startdate + "T00:00:00")) : "—"}</span></div>
       <div><span class="k">Legal approver</span><span class="v">${escapeHtml(p.legalappr || "—")}</span></div>
     </div>
+    ${rollupBlock}
     ${discoveryBlock}
     ${pdfFooter()}
   </div>`;
@@ -2049,6 +2157,16 @@ function buildDocxBody() {
       p.startdate ? fmtDate(new Date(p.startdate + "T00:00:00")) : "—", p.legalappr || "—"]]
   );
 
+  const rollup = computeRollup();
+  body += wHeading("Engagement rollup");
+  body += wTable(
+    ["Service", "Price", "Cost", "Hours", "Margin"],
+    [
+      ...rollup.rows.map(r => [r.label + (r.included ? "" : " (excluded)"), fmtMoney(r.price), fmtMoney(r.cost), String(Math.round(r.hours)), r.price > 0 ? fmtPct(r.margin) : "—"]),
+      ["Total", fmtMoney(rollup.totalPrice), fmtMoney(rollup.totalCost), String(Math.round(rollup.totalHours)), fmtPct(rollup.totalMargin)],
+    ]
+  );
+
   if (state.pdfOptions.discovery) {
     body += wHeading("Recommended track");
     body += wPara(`Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the ${track ? track.label : "—"} track — ${track ? track.desc : ""}`, { size: 18, spacingAfter: 120 });
@@ -2300,7 +2418,7 @@ async function init() {
   // Ad-Hoc T&M bindings
   document.getElementById("tm_requests").addEventListener("input", e => { state.tm.requests = Number(e.target.value) || 0; saveState(); });
   document.getElementById("tm_approval").addEventListener("input", e => { state.tm.approval = e.target.value; saveState(); });
-
+  
   // PDF export option bindings
   const pdfOptMap = { pdf_opt_discovery: "discovery", pdf_opt_project: "project", pdf_opt_ms: "ms", pdf_opt_tm: "tm" };
   Object.entries(pdfOptMap).forEach(([id, key]) => {
