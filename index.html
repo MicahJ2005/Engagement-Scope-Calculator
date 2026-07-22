@@ -140,6 +140,8 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 #weeklyGridTable td.wg-total,#weeklyGridTable th.wg-total{font-weight:bold;background:#FBFAF9;position:sticky;right:0;}
 #weeklyGridTable tfoot td{font-weight:bold;background:#F7F6F5;}
 #weeklyGridTable.wg-dragging{cursor:cell;}
+#weeklyGridTable td.wg-cell.wg-highlight{background:#FBE6E9;}
+#weeklyGridTable td.wg-cell.wg-highlight input{border-color:var(--dc-red);background:#fff;box-shadow:0 0 0 2px rgba(145,33,33,.18);}
 
 /* ---------- Track cards (business line selector) ---------- */
 .track-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:6px;}
@@ -1391,6 +1393,21 @@ function onTeamHourEdited(idx) {
 // Module-level drag state. Not part of app state — it's purely a UI interaction,
 // reset as soon as the mouse is released.
 let weeklyDrag = null; // { rowIdx, value }
+let weeklyHighlighted = []; // td elements currently painted during the active drag
+
+function highlightWeeklyCell(inputEl) {
+  if (!inputEl) return;
+  const td = inputEl.closest("td");
+  if (td && !td.classList.contains("wg-highlight")) {
+    td.classList.add("wg-highlight");
+    weeklyHighlighted.push(td);
+  }
+}
+
+function clearWeeklyHighlights() {
+  weeklyHighlighted.forEach(td => td.classList.remove("wg-highlight"));
+  weeklyHighlighted = [];
+}
 
 function weeklyCellKey(rowIdx, phaseKey, weekInPhase) {
   return "wg-" + rowIdx + "-" + phaseKey + "-" + weekInPhase;
@@ -1444,7 +1461,9 @@ function renderWeeklyGrid() {
       input.dataset.key = weeklyCellKey(rowIdx, w.phaseKey, w.weekInPhase);
 
       input.addEventListener("mousedown", () => {
+        clearWeeklyHighlights();
         weeklyDrag = { rowIdx, value: Number(input.value) || 0 };
+        highlightWeeklyCell(input);
         const table = document.getElementById("weeklyGridTable");
         if (table) table.classList.add("wg-dragging");
       });
@@ -1508,6 +1527,7 @@ function paintWeeklyCell(rowIdx, phaseKey, weekInPhase, value) {
   t.weeklyMap[key] = value;
   const cellInput = document.querySelector('[data-key="' + weeklyCellKey(rowIdx, phaseKey, weekInPhase) + '"]');
   if (cellInput) cellInput.value = value === 0 ? "" : String(value);
+  highlightWeeklyCell(cellInput);
   onWeeklyCellEdited(rowIdx, { skipFullRender: true });
 }
 
@@ -2732,6 +2752,7 @@ async function init() {
         renderAll({ skipWeekly: true });
       }
     }
+    clearWeeklyHighlights();
   });
 
   document.getElementById("btnAddResource").addEventListener("click", () => {
