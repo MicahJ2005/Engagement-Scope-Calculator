@@ -200,6 +200,12 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
           <option>Not started</option><option>Fee collected</option><option>Sessions complete</option><option>Report delivered</option>
         </select></div>
       </div>
+      <div class="dgrid" style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.25);">
+        <div class="dfield"><label>Delivery hours</label><input type="number" id="disc_hours" min="0"></div>
+        <div class="dfield"><label>Delivery rate class</label><select id="disc_rateclass"></select></div>
+        <div class="dfield"><label>Delivery cost</label><div style="font-size:17px;font-weight:bold;padding-top:6px;" id="disc_cost_display">$0</div></div>
+        <div class="dfield"><label>Margin (target 60%)</label><div style="font-size:17px;font-weight:bold;padding-top:6px;" id="disc_margin_display">0%</div></div>
+      </div>
     </div>
 
     <div class="card">
@@ -469,16 +475,21 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
           <tbody id="rollupBody"></tbody>
         </table>
       </div>
-      <p class="footnote">Discovery has no tracked delivery cost in this app, so it rolls up at its full fee with $0 cost. Managed Services contributes its full contract value (not the monthly invoice) so every line is on the same total-value basis.</p>
+      <p class="footnote">Discovery's cost is estimated from its delivery hours × rate class, set on the Project Info tab — target margin is 60%, same as every other line. Managed Services contributes its full contract value (not the monthly invoice) so every line is on the same total-value basis.</p>
     </div>
 
     <div class="card">
       <h2>Discovery</h2>
-      <div class="grid cols-4">
+      <div class="grid cols-4" style="margin-bottom:14px;">
         <div class="field"><label>Fee</label><div class="kpi" style="padding:10px 12px;"><div class="value small" id="sum_disc_fee">$0</div></div></div>
         <div class="field"><label>Credits toward</label><div class="kpi" style="padding:10px 12px;"><div class="value small" id="sum_disc_credit">—</div></div></div>
         <div class="field"><label>Status</label><div class="kpi" style="padding:10px 12px;"><div class="value small" id="sum_disc_status">—</div></div></div>
         <div class="field"><label>Recommended track</label><div class="kpi" style="padding:10px 12px;"><div class="value small" id="sum_disc_track">—</div></div></div>
+      </div>
+      <div class="grid cols-4">
+        <div class="field"><label>Delivery cost</label><div class="kpi grey" style="padding:10px 12px;"><div class="value small" id="sum_disc_cost">$0</div></div></div>
+        <div class="field"><label>Margin</label><div class="kpi navy" style="padding:10px 12px;"><div class="value small" id="sum_disc_margin">0%</div></div></div>
+        <div class="field" style="grid-column:span 2;"><label>Approval</label><div class="kpi cyan" style="padding:10px 12px;"><div class="value small" id="sum_disc_approval">—</div></div></div>
       </div>
     </div>
 
@@ -598,7 +609,7 @@ const SLA_TIERS = [
 function defaultState() {
   return {
     activeTrack: "project",
-    discovery: { fee: 7500, sessions: 2, status: "Not started" },
+    discovery: { fee: 7500, sessions: 2, status: "Not started", hours: 8, rateClass: "Consultant" },
     project: {
       account: "", project: "", oppurl: "", salesowner: "", se: "",
       scopeappr: "", finappr: "", legalappr: "", startdate: "",
@@ -972,20 +983,32 @@ function computeTmTotals() {
   return { lines, totalHours, totalCost, totalPrice, margin };
 }
 
+/* ============================ Discovery delivery calc =========================== */
+
+function computeDiscoveryDelivery() {
+  const disc = state.discovery;
+  const rate = rateFor(disc.rateClass);
+  const hours = Number(disc.hours) || 0;
+  const cost = hours * (rate ? rate.cost : 0);
+  const fee = Number(disc.fee) || 0;
+  const margin = fee > 0 ? (fee - cost) / fee : 0;
+  return { hours, cost, fee, margin };
+}
+
 /* ============================ Engagement rollup =========================== */
 
-// Combined view across all four service lines. Discovery has no tracked delivery
-// cost in this app, so it rolls up at its full fee with $0 cost (100% margin).
-// Managed Services contributes its full contract value (not the monthly invoice),
-// so all four lines are on an apples-to-apples "total value of this line" basis.
+// Combined view across all four service lines. Managed Services contributes its
+// full contract value (not the monthly invoice), so all four lines are on an
+// apples-to-apples "total value of this line" basis.
 function computeRollup() {
   const disc = state.discovery;
+  const discCalc = computeDiscoveryDelivery();
   const pt = computeProjectTotals();
   const mt = computeMsTotals();
   const tt = computeTmTotals();
 
   const rows = [
-    { key: "discovery", label: "Paid Discovery", price: Number(disc.fee) || 0, cost: 0, hours: 0 },
+    { key: "discovery", label: "Paid Discovery", price: Number(disc.fee) || 0, cost: discCalc.cost, hours: discCalc.hours },
     { key: "project", label: "Project", price: pt.totalPrice, cost: pt.totalCost, hours: pt.totalHours },
     { key: "ms", label: "Managed Services (contract value)", price: mt.totalRevenue, cost: mt.totalCost, hours: mt.totalHours },
     { key: "tm", label: "Ad-Hoc T&M", price: tt.totalPrice, cost: tt.totalCost, hours: tt.totalHours },
@@ -1095,6 +1118,9 @@ function bindProjectFields() {
   const statusSel = document.getElementById("disc_status");
   statusSel.value = state.discovery.status;
   statusSel.addEventListener("change", e => { state.discovery.status = e.target.value; renderAll(); saveState(); });
+
+  document.getElementById("disc_hours").value = state.discovery.hours;
+  document.getElementById("disc_hours").addEventListener("input", e => { state.discovery.hours = Number(e.target.value) || 0; renderAll(); saveState(); });
 }
 
 function renderDiscoveryCreditDisplay() {
@@ -1104,6 +1130,39 @@ function renderDiscoveryCreditDisplay() {
   const opt = document.createElement("option");
   opt.textContent = track ? track.creditsTo : "—";
   sel.appendChild(opt);
+}
+
+function renderDiscoveryDeliveryFields() {
+  const rateSel = document.getElementById("disc_rateclass");
+  const prevValue = state.discovery.rateClass;
+  rateSel.innerHTML = "";
+  state.rates.forEach(r => {
+    const opt = document.createElement("option");
+    opt.value = r.name; opt.textContent = r.name;
+    if (r.name === prevValue) opt.selected = true;
+    rateSel.appendChild(opt);
+  });
+  if (!rateSel.value && state.rates.length) {
+    state.discovery.rateClass = state.rates[0].name;
+    rateSel.value = state.rates[0].name;
+  }
+  rateSel.onchange = () => { state.discovery.rateClass = rateSel.value; renderAll(); saveState(); };
+
+  const calc = computeDiscoveryDelivery();
+  document.getElementById("disc_cost_display").textContent = fmtMoney(calc.cost);
+  const approval = marginApproval(calc.margin);
+  const marginEl = document.getElementById("disc_margin_display");
+  marginEl.innerHTML = "";
+  marginEl.appendChild(document.createTextNode(fmtPct(calc.margin)));
+  if (approval.tone !== "good") {
+    const warn = document.createElement("div");
+    warn.style.fontSize = "11px";
+    warn.style.fontWeight = "bold";
+    warn.style.color = "#FFD54A";
+    warn.style.marginTop = "2px";
+    warn.textContent = "⚠ " + approval.label;
+    marginEl.appendChild(warn);
+  }
 }
 
 /* ---- Rates ---- */
@@ -1671,6 +1730,12 @@ function renderSummary() {
   document.getElementById("sum_disc_status").textContent = disc.status;
   document.getElementById("sum_disc_track").textContent = track ? track.label : "—";
 
+  const discCalc = computeDiscoveryDelivery();
+  const discApproval = marginApproval(discCalc.margin);
+  document.getElementById("sum_disc_cost").textContent = fmtMoney(discCalc.cost);
+  document.getElementById("sum_disc_margin").textContent = fmtPct(discCalc.margin);
+  document.getElementById("sum_disc_approval").textContent = discApproval.label;
+
   const pt = computeProjectTotals();
   const pApproval = marginApproval(pt.margin);
   fillKpiRow("summaryProjectKpis", [
@@ -1722,6 +1787,7 @@ function renderAll(opts) {
 
   renderTrackCards();
   renderDiscoveryCreditDisplay();
+  renderDiscoveryDeliveryFields();
   if (!opts.skipRates) renderRatesTable();
   renderProjectModeCards();
   updateProjectModeVisibility();
@@ -1846,6 +1912,8 @@ function buildCoverAndDiscoveryPage() {
       </tbody>
     </table>
   `;
+  const discCalc = computeDiscoveryDelivery();
+  const discApproval = marginApproval(discCalc.margin);
   const discoveryBlock = state.pdfOptions.discovery ? `
     <h2 class="pg-h2">Recommended track</h2>
     <p class="pg-note" style="font-size:12.5px;">Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the <b>${escapeHtml(track ? track.label : "—")}</b> track — ${escapeHtml(track ? track.desc : "")}</p>
@@ -1853,7 +1921,9 @@ function buildCoverAndDiscoveryPage() {
       ["Discovery fee", fmtMoney(disc.fee)],
       ["Sessions", String(disc.sessions)],
       ["Credits toward", track ? track.creditsTo : "—"],
-      ["Status", disc.status],
+      ["Delivery cost", fmtMoney(discCalc.cost)],
+      ["Margin (target 60%)", fmtPct(discCalc.margin)],
+      ["Approval", discApproval.label],
     ])}
     <p class="pg-note">Discovery is non-refundable but always credits forward against the client's chosen track. The fee is earned through delivery of the discovery report — not contingent on the client proceeding to any track.</p>
   ` : "";
@@ -2168,6 +2238,8 @@ function buildDocxBody() {
   );
 
   if (state.pdfOptions.discovery) {
+    const discCalc = computeDiscoveryDelivery();
+    const discApproval = marginApproval(discCalc.margin);
     body += wHeading("Recommended track");
     body += wPara(`Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the ${track ? track.label : "—"} track — ${track ? track.desc : ""}`, { size: 18, spacingAfter: 120 });
     body += wKpiLine([
@@ -2175,6 +2247,11 @@ function buildDocxBody() {
       ["Sessions", String(disc.sessions)],
       ["Credits toward", track ? track.creditsTo : "—"],
       ["Status", disc.status],
+    ]);
+    body += wKpiLine([
+      ["Delivery cost", fmtMoney(discCalc.cost)],
+      ["Margin (target 60%)", fmtPct(discCalc.margin)],
+      ["Approval", discApproval.label],
     ]);
     body += wPara("Discovery is non-refundable but always credits forward against the client's chosen track. The fee is earned through delivery of the discovery report — not contingent on the client proceeding to any track.", { color: "595959", size: 16, spacingAfter: 240 });
   }
@@ -2418,7 +2495,7 @@ async function init() {
   // Ad-Hoc T&M bindings
   document.getElementById("tm_requests").addEventListener("input", e => { state.tm.requests = Number(e.target.value) || 0; saveState(); });
   document.getElementById("tm_approval").addEventListener("input", e => { state.tm.approval = e.target.value; saveState(); });
-  
+
   // PDF export option bindings
   const pdfOptMap = { pdf_opt_discovery: "discovery", pdf_opt_project: "project", pdf_opt_ms: "ms", pdf_opt_tm: "tm" };
   Object.entries(pdfOptMap).forEach(([id, key]) => {
