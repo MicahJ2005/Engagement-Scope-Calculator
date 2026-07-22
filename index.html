@@ -933,13 +933,14 @@ function el(tag, attrs = {}, children = []) {
   return e;
 }
 
-function numInput(value, onChange, editable, locked) {
+function numInput(value, onChange, editable, locked, key) {
   const input = document.createElement("input");
-  input.type = "number";
-  input.step = "0.01";
+  input.type = "text";
+  input.inputMode = "decimal";
   input.value = value;
   input.className = editable ? "editable" : "";
   input.style.textAlign = "right";
+  if (key) input.dataset.key = key;
   if (locked) {
     input.disabled = true;
     input.title = "Fixed salaried cost — not editable";
@@ -1029,12 +1030,28 @@ function renderRatesTable() {
 
     const tr = el("tr", {}, [
       el("td", {}, r.name + (locked ? " 🔒" : "")),
-      numInput(r.cost, v => { r.cost = v; renderAll(); saveState(); }, false, locked),
-      numInput(r.price, v => { r.price = v; renderAll(); saveState(); }, true),
-      el("td", { class: "num" }, fmtPct(margin)),
+      numInput(r.cost, v => { r.cost = v; onRateEdited(r.name); saveState(); }, false, locked, "rate-cost-" + r.name),
+      numInput(r.price, v => { r.price = v; onRateEdited(r.name); saveState(); }, true, false, "rate-price-" + r.name),
+      el("td", { class: "num", "data-key": "rate-margin-" + r.name }, fmtPct(margin)),
     ]);
     body.appendChild(tr);
   });
+}
+
+// Called when a Rate Card cost/price value changes. Patches this row's own Margin
+// cell directly (no rebuild, so the input the user is actively typing in is never
+// touched) and refreshes every other section that depends on rates — those tables
+// aren't focused, so a full rebuild there is safe.
+function onRateEdited(rateName) {
+  const r = state.rates.find(x => x.name === rateName);
+  if (r) {
+    const marginCell = document.querySelector('[data-key="rate-margin-' + rateName + '"]');
+    if (marginCell) {
+      const margin = r.price > 0 ? (r.price - r.cost) / r.price : 0;
+      marginCell.textContent = fmtPct(margin);
+    }
+  }
+  renderAll({ skipRates: true });
 }
 
 /* ---- Project track ---- */
@@ -1052,10 +1069,12 @@ function renderTeamTable() {
 
     const roleInput = document.createElement("input");
     roleInput.type = "text"; roleInput.value = t.role;
+    roleInput.dataset.key = "team-role-" + idx;
     roleInput.addEventListener("input", () => { t.role = roleInput.value; saveState(); });
     tr.appendChild(el("td", {}, roleInput));
 
     const rateSel = document.createElement("select");
+    rateSel.dataset.key = "team-rate-" + idx;
     state.rates.forEach(r => {
       const opt = document.createElement("option");
       opt.value = r.name; opt.textContent = r.name;
@@ -1067,20 +1086,21 @@ function renderTeamTable() {
 
     ["planning", "discovery", "pb", "deploy", "wrapup"].forEach(key => {
       const input = document.createElement("input");
-      input.type = "number"; input.min = "0"; input.value = t[key];
+      input.type = "text"; input.inputMode = "decimal"; input.value = t[key];
       input.style.textAlign = "right";
-      input.addEventListener("input", () => { t[key] = Number(input.value) || 0; renderAll(); saveState(); });
+      input.dataset.key = "team-" + key + "-" + idx;
+      input.addEventListener("input", () => { t[key] = Number(input.value) || 0; onTeamHourEdited(idx); saveState(); });
       tr.appendChild(el("td", { class: "num" }, input));
     });
 
-    tr.appendChild(el("td", { class: "num" }, String(Math.round(line.totalHours))));
+    tr.appendChild(el("td", { class: "num", "data-key": "team-totalhours-" + idx }, String(Math.round(line.totalHours))));
     tr.appendChild(el("td", { class: "num" }, "$" + line.cost.toFixed(2)));
     tr.appendChild(el("td", { class: "num" }, "$" + line.price.toFixed(2)));
-    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.lineCost)));
-    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.linePrice)));
+    tr.appendChild(el("td", { class: "num", "data-key": "team-linecost-" + idx }, fmtMoney(line.lineCost)));
+    tr.appendChild(el("td", { class: "num", "data-key": "team-lineprice-" + idx }, fmtMoney(line.linePrice)));
 
     const marginPill = el("span", { class: "pill " + marginPillClass(line.margin) }, fmtPct(line.margin));
-    tr.appendChild(el("td", { class: "num" }, marginPill));
+    tr.appendChild(el("td", { class: "num", "data-key": "team-marginpill-" + idx }, marginPill));
 
     const rm = el("button", { class: "remove-btn", title: "Remove resource" }, "×");
     rm.addEventListener("click", () => { state.team.splice(idx, 1); renderAll(); saveState(); });
@@ -1088,6 +1108,28 @@ function renderTeamTable() {
 
     body.appendChild(tr);
   });
+}
+
+// Called when a Team row's hour field changes. Patches this row's computed cells
+// directly (total hours, line cost/price, margin) without rebuilding the table, so
+// the hour field the user is typing in is never destroyed mid-edit.
+function onTeamHourEdited(idx) {
+  const totals = computeProjectTotals();
+  if (totals.mode === "hourly" && totals.lines[idx]) {
+    const line = totals.lines[idx];
+    const totalCell = document.querySelector('[data-key="team-totalhours-' + idx + '"]');
+    const costCell = document.querySelector('[data-key="team-linecost-' + idx + '"]');
+    const priceCell = document.querySelector('[data-key="team-lineprice-' + idx + '"]');
+    const marginCell = document.querySelector('[data-key="team-marginpill-' + idx + '"]');
+    if (totalCell) totalCell.textContent = String(Math.round(line.totalHours));
+    if (costCell) costCell.textContent = fmtMoney(line.lineCost);
+    if (priceCell) priceCell.textContent = fmtMoney(line.linePrice);
+    if (marginCell) {
+      marginCell.innerHTML = "";
+      marginCell.appendChild(el("span", { class: "pill " + marginPillClass(line.margin) }, fmtPct(line.margin)));
+    }
+  }
+  renderAll({ skipTeam: true });
 }
 
 function renderFixedTable() {
@@ -1101,15 +1143,18 @@ function renderFixedTable() {
 
     const nameInput = document.createElement("input");
     nameInput.type = "text"; nameInput.value = t.name; nameInput.placeholder = "e.g. Lead routing automation";
+    nameInput.dataset.key = "fixed-name-" + idx;
     nameInput.addEventListener("input", () => { t.name = nameInput.value; saveState(); });
     tr.appendChild(el("td", {}, nameInput));
 
     const delivInput = document.createElement("input");
     delivInput.type = "text"; delivInput.value = t.deliverable; delivInput.placeholder = "e.g. Flow + validation rules, tested & documented";
+    delivInput.dataset.key = "fixed-deliverable-" + idx;
     delivInput.addEventListener("input", () => { t.deliverable = delivInput.value; saveState(); });
     tr.appendChild(el("td", {}, delivInput));
 
     const phaseSel = document.createElement("select");
+    phaseSel.dataset.key = "fixed-phase-" + idx;
     PHASE_KEYS.forEach((k, i) => {
       const opt = document.createElement("option");
       opt.value = k; opt.textContent = PHASES[i];
@@ -1120,12 +1165,14 @@ function renderFixedTable() {
     tr.appendChild(el("td", {}, phaseSel));
 
     const hrsInput = document.createElement("input");
-    hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = t.hours;
+    hrsInput.type = "text"; hrsInput.inputMode = "decimal"; hrsInput.value = t.hours;
     hrsInput.style.textAlign = "right";
-    hrsInput.addEventListener("input", () => { t.hours = Number(hrsInput.value) || 0; renderAll(); saveState(); });
+    hrsInput.dataset.key = "fixed-hours-" + idx;
+    hrsInput.addEventListener("input", () => { t.hours = Number(hrsInput.value) || 0; onFixedLineEdited(idx); saveState(); });
     tr.appendChild(el("td", { class: "num" }, hrsInput));
 
     const rateSel = document.createElement("select");
+    rateSel.dataset.key = "fixed-rate-" + idx;
     state.rates.forEach(r => {
       const opt = document.createElement("option");
       opt.value = r.name; opt.textContent = r.name;
@@ -1135,21 +1182,23 @@ function renderFixedTable() {
     rateSel.addEventListener("change", () => { t.rateClass = rateSel.value; renderAll(); saveState(); });
     tr.appendChild(el("td", {}, rateSel));
 
-    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.lineCost)));
+    tr.appendChild(el("td", { class: "num", "data-key": "fixed-linecost-" + idx }, fmtMoney(line.lineCost)));
 
     const priceWrap = document.createElement("div");
     const priceInput = document.createElement("input");
-    priceInput.type = "number"; priceInput.min = "0"; priceInput.value = t.price;
+    priceInput.type = "text"; priceInput.inputMode = "decimal"; priceInput.value = t.price;
     priceInput.style.textAlign = "right";
-    priceInput.addEventListener("input", () => { t.price = Number(priceInput.value) || 0; renderAll(); saveState(); });
+    priceInput.dataset.key = "fixed-price-" + idx;
+    priceInput.addEventListener("input", () => { t.price = Number(priceInput.value) || 0; onFixedLineEdited(idx); saveState(); });
     priceWrap.appendChild(priceInput);
     const hint = document.createElement("div");
     hint.className = "hint";
+    hint.dataset.key = "fixed-suggested-" + idx;
     hint.textContent = "sugg. " + fmtMoney(line.suggestedPrice);
     priceWrap.appendChild(hint);
     tr.appendChild(el("td", { class: "num" }, priceWrap));
 
-    tr.appendChild(el("td", { class: "num" }, el("span", { class: "pill " + marginPillClass(line.margin) }, line.price > 0 ? fmtPct(line.margin) : "—")));
+    tr.appendChild(el("td", { class: "num", "data-key": "fixed-marginpill-" + idx }, el("span", { class: "pill " + marginPillClass(line.margin) }, line.price > 0 ? fmtPct(line.margin) : "—")));
 
     const rm = el("button", { class: "remove-btn", title: "Remove line" }, "×");
     rm.addEventListener("click", () => { state.fixedLines.splice(idx, 1); renderAll(); saveState(); });
@@ -1157,6 +1206,26 @@ function renderFixedTable() {
 
     body.appendChild(tr);
   });
+}
+
+// Called when a Fixed Bid row's hours or price changes. Patches this row's
+// computed cells directly (line cost, suggested-price hint, margin) without
+// rebuilding the table.
+function onFixedLineEdited(idx) {
+  const lines = computeFixedLines();
+  const line = lines[idx];
+  if (line) {
+    const costCell = document.querySelector('[data-key="fixed-linecost-' + idx + '"]');
+    const suggestedHint = document.querySelector('[data-key="fixed-suggested-' + idx + '"]');
+    const marginCell = document.querySelector('[data-key="fixed-marginpill-' + idx + '"]');
+    if (costCell) costCell.textContent = fmtMoney(line.lineCost);
+    if (suggestedHint) suggestedHint.textContent = "sugg. " + fmtMoney(line.suggestedPrice);
+    if (marginCell) {
+      marginCell.innerHTML = "";
+      marginCell.appendChild(el("span", { class: "pill " + marginPillClass(line.margin) }, line.price > 0 ? fmtPct(line.margin) : "—"));
+    }
+  }
+  renderAll({ skipFixed: true });
 }
 
 function renderProjectModeCards() {
@@ -1286,6 +1355,7 @@ function renderMsTiersTable() {
   const tiers = computeMsTiers();
   tiers.forEach(tier => {
     const rateSel = document.createElement("select");
+    rateSel.dataset.key = "ms-rate-" + tier.key;
     state.rates.forEach(r => {
       const opt = document.createElement("option");
       opt.value = r.name; opt.textContent = r.name;
@@ -1298,25 +1368,47 @@ function renderMsTiersTable() {
     });
 
     const hrsInput = document.createElement("input");
-    hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = tier.hrsPerWeek;
+    hrsInput.type = "text"; hrsInput.inputMode = "decimal"; hrsInput.value = tier.hrsPerWeek;
     hrsInput.style.textAlign = "right";
+    hrsInput.dataset.key = "ms-hours-" + tier.key;
     if (!tier.isStandard) hrsInput.classList.add("editable");
     hrsInput.addEventListener("input", () => {
       state.ms.hours[tier.key] = Number(hrsInput.value) || 0;
-      renderAll(); saveState();
+      onMsHoursEdited(tier.key);
+      saveState();
     });
 
     const tr = el("tr", {}, [
-      el("td", {}, tier.label + (tier.hrsPerWeek > 0 && !tier.isStandard ? " ⚠" : "")),
+      el("td", { "data-key": "ms-label-" + tier.key }, tier.label + (tier.hrsPerWeek > 0 && !tier.isStandard ? " ⚠" : "")),
       el("td", {}, rateSel),
       el("td", { class: "num" }, hrsInput),
       el("td", { class: "num" }, "$" + tier.rate.toFixed(0)),
       el("td", { class: "num" }, "$" + tier.cost.toFixed(2)),
-      el("td", { class: "num" }, fmtMoney(tier.weeklyRevenue)),
-      el("td", { class: "num" }, el("span", { class: "pill " + marginPillClass(tier.margin) }, tier.hrsPerWeek > 0 ? fmtPct(tier.margin) : "—")),
+      el("td", { class: "num", "data-key": "ms-weeklyrev-" + tier.key }, fmtMoney(tier.weeklyRevenue)),
+      el("td", { class: "num", "data-key": "ms-marginpill-" + tier.key }, el("span", { class: "pill " + marginPillClass(tier.margin) }, tier.hrsPerWeek > 0 ? fmtPct(tier.margin) : "—")),
     ]);
     body.appendChild(tr);
   });
+}
+
+// Called when an MS delivery tier's hrs/week changes. Patches this row's computed
+// cells directly (weekly revenue, margin, the ⚠ label suffix) without rebuilding
+// the table.
+function onMsHoursEdited(tierKey) {
+  const tiers = computeMsTiers();
+  const tier = tiers.find(t => t.key === tierKey);
+  if (tier) {
+    const labelCell = document.querySelector('[data-key="ms-label-' + tierKey + '"]');
+    const revCell = document.querySelector('[data-key="ms-weeklyrev-' + tierKey + '"]');
+    const marginCell = document.querySelector('[data-key="ms-marginpill-' + tierKey + '"]');
+    if (labelCell) labelCell.textContent = tier.label + (tier.hrsPerWeek > 0 && !tier.isStandard ? " ⚠" : "");
+    if (revCell) revCell.textContent = fmtMoney(tier.weeklyRevenue);
+    if (marginCell) {
+      marginCell.innerHTML = "";
+      marginCell.appendChild(el("span", { class: "pill " + marginPillClass(tier.margin) }, tier.hrsPerWeek > 0 ? fmtPct(tier.margin) : "—"));
+    }
+  }
+  renderAll({ skipMs: true });
 }
 
 function renderMsKpis() {
@@ -1355,6 +1447,7 @@ function renderTmTable() {
     const tr = el("tr");
 
     const rateSel = document.createElement("select");
+    rateSel.dataset.key = "tm-rate-" + idx;
     state.rates.forEach(r => {
       const opt = document.createElement("option");
       opt.value = r.name; opt.textContent = r.name;
@@ -1365,6 +1458,7 @@ function renderTmTable() {
     tr.appendChild(el("td", {}, rateSel));
 
     const slaSel = document.createElement("select");
+    slaSel.dataset.key = "tm-sla-" + idx;
     SLA_TIERS.forEach(s => {
       const opt = document.createElement("option");
       opt.value = s.value; opt.textContent = s.label;
@@ -1375,16 +1469,17 @@ function renderTmTable() {
     tr.appendChild(el("td", {}, slaSel));
 
     const hrsInput = document.createElement("input");
-    hrsInput.type = "number"; hrsInput.min = "0"; hrsInput.value = t.hours;
+    hrsInput.type = "text"; hrsInput.inputMode = "decimal"; hrsInput.value = t.hours;
     hrsInput.style.textAlign = "right";
-    hrsInput.addEventListener("input", () => { t.hours = Number(hrsInput.value) || 0; renderAll(); saveState(); });
+    hrsInput.dataset.key = "tm-hours-" + idx;
+    hrsInput.addEventListener("input", () => { t.hours = Number(hrsInput.value) || 0; onTmHoursEdited(idx); saveState(); });
     tr.appendChild(el("td", { class: "num" }, hrsInput));
 
     tr.appendChild(el("td", { class: "num" }, "$" + line.cost.toFixed(2)));
     tr.appendChild(el("td", { class: "num" }, "$" + line.price.toFixed(2)));
-    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.lineCost)));
-    tr.appendChild(el("td", { class: "num" }, fmtMoney(line.linePrice)));
-    tr.appendChild(el("td", { class: "num" }, el("span", { class: "pill " + marginPillClass(line.margin) }, fmtPct(line.margin))));
+    tr.appendChild(el("td", { class: "num", "data-key": "tm-linecost-" + idx }, fmtMoney(line.lineCost)));
+    tr.appendChild(el("td", { class: "num", "data-key": "tm-lineprice-" + idx }, fmtMoney(line.linePrice)));
+    tr.appendChild(el("td", { class: "num", "data-key": "tm-marginpill-" + idx }, el("span", { class: "pill " + marginPillClass(line.margin) }, fmtPct(line.margin))));
 
     const rm = el("button", { class: "remove-btn", title: "Remove line" }, "×");
     rm.addEventListener("click", () => { state.tm.lines.splice(idx, 1); renderAll(); saveState(); });
@@ -1392,6 +1487,25 @@ function renderTmTable() {
 
     body.appendChild(tr);
   });
+}
+
+// Called when a T&M line's hours change. Patches this row's computed cells
+// directly (line cost/price, margin) without rebuilding the table.
+function onTmHoursEdited(idx) {
+  const { lines } = computeTmTotals();
+  const line = lines[idx];
+  if (line) {
+    const costCell = document.querySelector('[data-key="tm-linecost-' + idx + '"]');
+    const priceCell = document.querySelector('[data-key="tm-lineprice-' + idx + '"]');
+    const marginCell = document.querySelector('[data-key="tm-marginpill-' + idx + '"]');
+    if (costCell) costCell.textContent = fmtMoney(line.lineCost);
+    if (priceCell) priceCell.textContent = fmtMoney(line.linePrice);
+    if (marginCell) {
+      marginCell.innerHTML = "";
+      marginCell.appendChild(el("span", { class: "pill " + marginPillClass(line.margin) }, fmtPct(line.margin)));
+    }
+  }
+  renderAll({ skipTm: true });
 }
 
 function renderTmKpis() {
@@ -1461,27 +1575,48 @@ function updateTrackDots() {
   document.getElementById("dot-tm").classList.toggle("on", tt.totalHours > 0);
 }
 
-function renderAll() {
+function renderAll(opts) {
+  opts = opts || {};
+  // Preserve focus + cursor position across the rebuild below — the table renderers
+  // wipe and recreate their rows on every keystroke (innerHTML = ""), which would
+  // otherwise steal focus from whatever input the user is actively typing into.
+  // Callers that already know which table currently holds focus (see onRateEdited,
+  // etc.) pass a skip flag so that table isn't touched at all during the edit.
+  const active = document.activeElement;
+  const focusKey = (active && active.dataset) ? active.dataset.key : null;
+  const selStart = (active && typeof active.selectionStart === "number") ? active.selectionStart : null;
+  const selEnd = (active && typeof active.selectionEnd === "number") ? active.selectionEnd : null;
+
   renderTrackCards();
   renderDiscoveryCreditDisplay();
-  renderRatesTable();
+  if (!opts.skipRates) renderRatesTable();
   renderProjectModeCards();
   updateProjectModeVisibility();
-  renderTeamTable();
-  renderFixedTable();
+  if (!opts.skipTeam) renderTeamTable();
+  if (!opts.skipFixed) renderFixedTable();
   renderProjectRangeFields();
   renderProjectKpis();
   renderProjectRangeKpis();
   const segs = buildTimelinePhases();
   renderGantt("ganttWrap", segs);
   renderMsFields();
-  renderMsTiersTable();
+  if (!opts.skipMs) renderMsTiersTable();
   renderMsKpis();
   renderTmFields();
-  renderTmTable();
+  if (!opts.skipTm) renderTmTable();
   renderTmKpis();
   renderSummary();
   updateTrackDots();
+
+  if (focusKey) {
+    const el2 = document.querySelector('[data-key="' + focusKey + '"]');
+    if (el2) {
+      el2.focus();
+      if (selStart != null && el2.setSelectionRange) {
+        try { el2.setSelectionRange(selStart, selEnd); } catch (e) { /* not a text-selectable input */ }
+      }
+    }
+  }
 }
 
 /* ============================== Tabs ================================ */
