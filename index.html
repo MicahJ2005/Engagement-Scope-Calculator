@@ -342,7 +342,16 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
     </div>
 
     <div class="kpis" id="projectKpis"></div>
-    <div class="kpis" id="projectRangeKpis" style="grid-template-columns:repeat(3,1fr);"></div>
+    <div class="card" style="margin-bottom:18px;">
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th></th><th class="num">Low estimate</th><th class="num">High estimate</th></tr>
+          </thead>
+          <tbody id="projectRangeTable"></tbody>
+        </table>
+      </div>
+    </div>
 
     <div class="card">
       <h2>Timeline infographic</h2>
@@ -1287,14 +1296,23 @@ function renderProjectRangeFields() {
 
 function renderProjectRangeKpis() {
   const range = computeProjectRange();
-  const wrap = document.getElementById("projectRangeKpis");
-  wrap.innerHTML = "";
-  wrap.appendChild(kpiCard("Cost — low estimate", fmtMoney(range.costLow), "grey"));
-  wrap.appendChild(kpiCard("Cost — high estimate", fmtMoney(range.costHigh), "grey"));
-  wrap.appendChild(kpiCard("Hours — low estimate", Math.round(range.hoursLow).toLocaleString("en-US"), "navy"));
-  wrap.appendChild(kpiCard("Hours — high estimate", Math.round(range.hoursHigh).toLocaleString("en-US"), "navy"));
-  wrap.appendChild(kpiCard("Margin — at low cost", fmtPct(range.marginAtCostLow), "cyan"));
-  wrap.appendChild(kpiCard("Margin — at high cost", fmtPct(range.marginAtCostHigh), "cyan"));
+  const body = document.getElementById("projectRangeTable");
+  body.innerHTML = "";
+  body.appendChild(el("tr", {}, [
+    el("td", {}, "Cost"),
+    el("td", { class: "num" }, fmtMoney(range.costLow)),
+    el("td", { class: "num" }, fmtMoney(range.costHigh)),
+  ]));
+  body.appendChild(el("tr", {}, [
+    el("td", {}, "Hours"),
+    el("td", { class: "num" }, Math.round(range.hoursLow).toLocaleString("en-US")),
+    el("td", { class: "num" }, Math.round(range.hoursHigh).toLocaleString("en-US")),
+  ]));
+  body.appendChild(el("tr", {}, [
+    el("td", {}, "Margin"),
+    el("td", { class: "num" }, fmtPct(range.marginAtCostLow)),
+    el("td", { class: "num" }, fmtPct(range.marginAtCostHigh)),
+  ]));
 }
 
 function renderProjectKpis() {
@@ -1807,14 +1825,14 @@ function buildProjectPages() {
       ["Approval", approval.label],
     ])}
     <h2 class="pg-h2">Estimate range</h2>
-    ${pdfKpis([
-      ["Cost — low", fmtMoney(range.costLow)],
-      ["Cost — high", fmtMoney(range.costHigh)],
-      ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
-      ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
-      ["Margin — at low cost", fmtPct(range.marginAtCostLow)],
-      ["Margin — at high cost", fmtPct(range.marginAtCostHigh)],
-    ])}
+    <table class="pg-table">
+      <thead><tr><th></th><th class="num">Low estimate</th><th class="num">High estimate</th></tr></thead>
+      <tbody>
+        <tr><td>Cost</td><td class="num">${fmtMoney(range.costLow)}</td><td class="num">${fmtMoney(range.costHigh)}</td></tr>
+        <tr><td>Hours</td><td class="num">${Math.round(range.hoursLow).toLocaleString("en-US")}</td><td class="num">${Math.round(range.hoursHigh).toLocaleString("en-US")}</td></tr>
+        <tr><td>Margin</td><td class="num">${fmtPct(range.marginAtCostLow)}</td><td class="num">${fmtPct(range.marginAtCostHigh)}</td></tr>
+      </tbody>
+    </table>
     <h2 class="pg-h2">Estimate by phase</h2>
     <table class="pg-table">
       <thead><tr><th>Phase</th><th class="num">Hours</th><th class="num">Price</th></tr></thead>
@@ -2060,16 +2078,14 @@ function buildDocxBody() {
       ["Margin", fmtPct(totals.margin)],
       ["Approval", approval.label],
     ]);
-    body += wKpiLine([
-      ["Cost — low", fmtMoney(range.costLow)],
-      ["Cost — high", fmtMoney(range.costHigh)],
-      ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
-      ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
-    ]);
-    body += wKpiLine([
-      ["Margin — at low cost", fmtPct(range.marginAtCostLow)],
-      ["Margin — at high cost", fmtPct(range.marginAtCostHigh)],
-    ]);
+    body += wTable(
+      ["", "Low estimate", "High estimate"],
+      [
+        ["Cost", fmtMoney(range.costLow), fmtMoney(range.costHigh)],
+        ["Hours", Math.round(range.hoursLow).toLocaleString("en-US"), Math.round(range.hoursHigh).toLocaleString("en-US")],
+        ["Margin", fmtPct(range.marginAtCostLow), fmtPct(range.marginAtCostHigh)],
+      ]
+    );
 
     body += wHeading("Estimate by phase");
     body += wTable(
