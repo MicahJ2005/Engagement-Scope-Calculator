@@ -163,7 +163,8 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
     <div class="topbar-actions">
       <button class="btn btn-ghost btn-sm" id="btnReset">Reset</button>
       <button class="btn btn-ghost btn-sm" id="btnSave">Save</button>
-      <button class="btn btn-primary" id="btnExport">⬇ Download PDF</button>
+      <button class="btn btn-primary" id="btnExport">⬇ PDF</button>
+      <button class="btn btn-primary" id="btnExportWord">⬇ Word</button>
     </div>
   </div>
 </div>
@@ -224,19 +225,15 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
   <div class="panel" id="panel-rates">
     <div class="card">
       <h2>Rate card</h2>
-      <p class="sub">Cost is DC's internal loaded cost per hour. Price columns are negotiated bill rates by engagement type — edit the highlighted cells for this project only. Margin recalculates automatically. Used by the Project and Ad-Hoc T&amp;M tracks.</p>
+      <p class="sub">Cost is DC's internal loaded cost per hour and is locked for salaried rate classes. Price/hr is the negotiated bill rate — edit it for this project only. Margin recalculates automatically. Used by the Project, Managed Services, and Ad-Hoc T&amp;M tracks.</p>
       <div class="tbl-wrap">
         <table id="ratesTable">
           <thead>
             <tr>
               <th>Rate class</th>
               <th class="num">Cost / hr</th>
-              <th class="num">Price / hr (Core)</th>
-              <th class="num">Margin (Core)</th>
-              <th class="num">Price / hr (Advisory)</th>
-              <th class="num">Margin (Advisory)</th>
-              <th class="num">Price / hr (Managed Svcs)</th>
-              <th class="num">Margin (MS)</th>
+              <th class="num">Price / hr</th>
+              <th class="num">Margin</th>
             </tr>
           </thead>
           <tbody id="ratesBody"></tbody>
@@ -245,7 +242,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       <div class="row-actions">
         <button class="btn btn-sm btn-ghost" id="btnRatesDefault">Restore default rate card</button>
       </div>
-      <p class="footnote">Rates marked with elevated margin thresholds may require approval — see the Summary tab for the current project's approval status.</p>
+      <p class="footnote">Rates marked with elevated margin thresholds may require approval — see the Summary tab for the current project's approval status. Cost/hr fields with a lock icon are fixed salaried costs and can't be edited.</p>
     </div>
   </div>
 
@@ -259,7 +256,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card">
       <h2>Pricing model</h2>
-      <p class="sub">Choose how this Project is priced. Both options share the same phase timeline, KPIs, and PDF export below.</p>
+      <p class="sub">Choose how this Project is priced. Both options share the same phase timeline, KPIs, and export below.</p>
       <div class="track-cards" id="projectModeCards" style="grid-template-columns:1fr 1fr;"></div>
     </div>
 
@@ -278,14 +275,13 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card" id="hourlyTeamCard">
       <h2>Project team</h2>
-      <p class="sub">Add each resource, pick a rate class and billing type, then allocate their hours across phases.</p>
+      <p class="sub">Add each resource, pick a rate class, then allocate their hours across phases.</p>
       <div class="tbl-wrap">
         <table id="teamTable">
           <thead>
             <tr>
               <th style="min-width:120px;">DC role</th>
               <th style="min-width:140px;">Rate class</th>
-              <th style="min-width:110px;">Billing type</th>
               <th class="num">Planning hrs</th>
               <th class="num">Discovery hrs</th>
               <th class="num">P&amp;B hrs</th>
@@ -310,7 +306,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card" id="fixedTeamCard" style="display:none;">
       <h2>Deliverables (Fixed Bid)</h2>
-      <p class="sub">Add each functionality or deliverable you're bidding at a fixed price. Estimate the internal effort (hours + rate class) so cost and margin still track, then set the client-facing fixed price per line — it doesn't have to equal hours × rate.</p>
+      <p class="sub">Add each functionality or deliverable you're bidding at a fixed price. Estimate internal effort (hours + rate class) so cost and margin still track, then set the client-facing fixed price per line — it doesn't have to equal hours × rate.</p>
       <div class="tbl-wrap">
         <table id="fixedTable">
           <thead>
@@ -334,7 +330,19 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       </div>
     </div>
 
+    <div class="card" id="rangeCard">
+      <h2>Estimate range</h2>
+      <p class="sub">Set a cost and hours range as a percentage above/below your point estimate — useful for ROM-style ranges before scope is fully locked.</p>
+      <div class="grid cols-4">
+        <div class="field"><label>Cost — low (%)</label><input type="number" min="0" max="100" id="range_cost_low" value="10"></div>
+        <div class="field"><label>Cost — high (%)</label><input type="number" min="0" max="200" id="range_cost_high" value="20"></div>
+        <div class="field"><label>Hours — low (%)</label><input type="number" min="0" max="100" id="range_hours_low" value="10"></div>
+        <div class="field"><label>Hours — high (%)</label><input type="number" min="0" max="200" id="range_hours_high" value="20"></div>
+      </div>
+    </div>
+
     <div class="kpis" id="projectKpis"></div>
+    <div class="kpis" id="projectRangeKpis"></div>
 
     <div class="card">
       <h2>Timeline infographic</h2>
@@ -409,7 +417,6 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
           <thead>
             <tr>
               <th style="min-width:140px;">Rate class</th>
-              <th style="min-width:110px;">Billing type</th>
               <th style="min-width:120px;">SLA tier</th>
               <th class="num">Est. hours</th>
               <th class="num">Cost/hr</th>
@@ -456,14 +463,17 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card">
       <h2>Export</h2>
-      <p class="sub">Choose which sections to include, then generate a Demand Chain–branded PDF. Project pages include the timeline infographic.</p>
+      <p class="sub">Choose which sections to include, then export. The PDF includes the timeline infographic on the Project pages; the Word doc includes a text-based phase timeline instead of the graphic.</p>
       <div class="grid cols-4" style="margin-bottom:16px;">
         <label class="checkbox-row"><input type="checkbox" id="pdf_opt_discovery"> Paid Discovery</label>
         <label class="checkbox-row"><input type="checkbox" id="pdf_opt_project"> Project</label>
         <label class="checkbox-row"><input type="checkbox" id="pdf_opt_ms"> Managed Services</label>
         <label class="checkbox-row"><input type="checkbox" id="pdf_opt_tm"> Ad-Hoc T&amp;M</label>
       </div>
-      <button class="btn btn-primary" id="btnExport2">⬇ Download PDF</button>
+      <div class="row-actions">
+        <button class="btn btn-primary" id="btnExport2">⬇ Download PDF</button>
+        <button class="btn btn-primary" id="btnExportWord2">⬇ Download Word</button>
+      </div>
     </div>
   </div>
 
@@ -471,6 +481,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
 <div id="printRoot" style="display:none;"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script>
 window.__DC_LOGO__ = "data:image/png;base64,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";
 </script>
@@ -485,26 +496,32 @@ window.__DC_LOGO__ = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAiAAAABUCAYA
 /* ---------------------------- Reference data ---------------------------- */
 
 const DEFAULT_RATES = [
-  // name, cost, priceCore, priceAdvisory, priceMS
-  ["Executive", 128.07, 425, 425, 425],
-  ["Director", 96.34, 325, 350, 325],
-  ["Manager", 95.82, 250, 275, 250],
-  ["Senior Consultant", 80.82, 225, 250, 225],
-  ["Consultant", 71.65, 200, 225, 200],
-  ["Independent (1099) — Tier 1", 155, 275, 250, 250],
-  ["Independent (1099) — Tier 2", 125, 250, 250, 250],
-  ["Independent (1099) — Tier 3", 105, 210, 250, 250],
-  ["Nearshore Architect", 55, 150, 150, 150],
-  ["Nearshore Senior Dev", 45, 130, 130, 130],
-  ["Nearshore Mid Dev", 40, 120, 120, 120],
-  ["Nearshore Junior Dev", 30, 90, 90, 90],
-  ["Offshore Architect", 42, 85, 85, 85],
-  ["Offshore Senior", 38, 75, 75, 75],
-  ["Offshore Dev / Admin", 32, 65, 65, 65],
-  ["Offshore QA", 30, 60, 60, 60],
-  ["Senior Administrator", 43.84, 190, 190, 190],
-  ["Administrator", 40, 160, 160, 160],
+  // name, cost, price
+  ["Executive", 128.07, 425],
+  ["Director", 96.34, 325],
+  ["Manager", 95.82, 250],
+  ["Senior Consultant", 80.82, 225],
+  ["Consultant", 71.65, 200],
+  ["Senior Administrator", 43.84, 190],
+  ["Administrator", 40, 160],
+  ["Independent (1099) — Tier 1", 155, 275],
+  ["Independent (1099) — Tier 2", 125, 250],
+  ["Independent (1099) — Tier 3", 105, 210],
+  ["Nearshore Architect", 55, 150],
+  ["Nearshore Senior Dev", 45, 130],
+  ["Nearshore Mid Dev", 40, 120],
+  ["Nearshore Junior Dev", 30, 90],
+  ["Offshore Architect", 42, 85],
+  ["Offshore Senior", 38, 75],
+  ["Offshore Dev / Admin", 32, 65],
+  ["Offshore QA", 30, 60],
 ];
+
+// Rate classes whose Cost/hr is a fixed salaried cost and can't be edited in the Rate Card.
+const LOCKED_COST_CLASSES = new Set([
+  "Executive", "Director", "Manager", "Senior Consultant", "Consultant",
+  "Senior Administrator", "Administrator",
+]);
 
 const PHASES = ["Planning", "Discovery", "P&B", "Deploy", "Wrap-up"];
 const PHASE_KEYS = ["planning", "discovery", "pb", "deploy", "wrapup"];
@@ -515,8 +532,6 @@ const PHASE_COLORS = {
   deploy: "#595959",
   wrapup: "#323232",
 };
-
-const BILLING_TYPES = ["Core", "Advisory", "Managed Services"];
 
 const TRACKS = [
   { key: "project", label: "Project", tagline: "Scoped deliverable", desc: "Project lead + specialist team. SOW-bound, phased milestone delivery, formal close & sign-off.", creditsTo: "First milestone of SOW" },
@@ -530,9 +545,9 @@ const PROJECT_MODES = [
   { key: "fixed", label: "Fixed Bid", desc: "Named functionality/deliverable lines, each with its own client-facing fixed price. Bills the agreed price regardless of hours worked." },
 ];
 
-// Managed Services delivery tiers — cost & price now come live from the Rate Card
-// (Managed Svcs columns). Term-length discount anchors mirror the DC Way calculator's
-// standard subscription pricing (6 mo = full rate, 12 mo ≈ -4%, 24 mo ≈ -12%).
+// Managed Services delivery tiers — cost & price come live from the Rate Card.
+// Term-length discount anchors mirror the DC Way calculator's standard subscription
+// pricing (6 mo = full rate, 12 mo ≈ -4%, 24 mo ≈ -12%).
 const MS_REGIONS = [
   { key: "onshore", label: "Onshore", defaultRateClass: "Senior Consultant", standardHours: [5,10,15,20,25,30,40] },
   { key: "nearshore", label: "Nearshore", defaultRateClass: "Nearshore Senior Dev", standardHours: [20,40] },
@@ -556,20 +571,19 @@ function defaultState() {
       account: "", project: "", oppurl: "", salesowner: "", se: "",
       scopeappr: "", finappr: "", legalappr: "", startdate: "",
     },
-    rates: DEFAULT_RATES.map(r => ({
-      name: r[0], cost: r[1], priceCore: r[2], priceAdvisory: r[3], priceMS: r[4]
-    })),
+    rates: DEFAULT_RATES.map(r => ({ name: r[0], cost: r[1], price: r[2] })),
     phases: { planning_wk: 1, discovery_wk: 2, pb_sprints: 6, sprint_len: 2, deploy_wk: 1, wrapup_wk: 1 },
     projectMode: "hourly",
     team: [
-      { role: "Solution Architect", rateClass: "Director", billing: "Core", planning: 20, discovery: 40, pb: 60, deploy: 10, wrapup: 8 },
-      { role: "SBA Lead", rateClass: "Manager", billing: "Core", planning: 8, discovery: 30, pb: 160, deploy: 30, wrapup: 12 },
-      { role: "Consultant", rateClass: "Consultant", billing: "Core", planning: 4, discovery: 20, pb: 200, deploy: 20, wrapup: 8 },
-      { role: "Project Manager", rateClass: "Senior Consultant", billing: "Core", planning: 8, discovery: 16, pb: 120, deploy: 16, wrapup: 16 },
+      { role: "Solution Architect", rateClass: "Director", planning: 20, discovery: 40, pb: 60, deploy: 10, wrapup: 8 },
+      { role: "SBA Lead", rateClass: "Manager", planning: 8, discovery: 30, pb: 160, deploy: 30, wrapup: 12 },
+      { role: "Consultant", rateClass: "Consultant", planning: 4, discovery: 20, pb: 200, deploy: 20, wrapup: 8 },
+      { role: "Project Manager", rateClass: "Senior Consultant", planning: 8, discovery: 16, pb: 120, deploy: 16, wrapup: 16 },
     ],
     fixedLines: [
       { name: "Custom object build-out", deliverable: "New object with fields, page layouts, and record-triggered automation", phase: "pb", hours: 40, rateClass: "Consultant", price: 9000 },
     ],
+    projectRange: { costLowPct: 10, costHighPct: 20, hoursLowPct: 10, hoursHighPct: 20 },
     ms: {
       lead: "", cadence: "Retainer", months: "12", monthsCustom: 12, qbr: "Quarterly",
       hours: { onshore: 10, nearshore: 0, offshore: 0 },
@@ -578,7 +592,7 @@ function defaultState() {
     tm: {
       requests: 4, approval: "",
       lines: [
-        { rateClass: "Consultant", billing: "Core", sla: "1", hours: 20 },
+        { rateClass: "Consultant", sla: "1", hours: 20 },
       ],
     },
     pdfOptions: { discovery: true, project: true, ms: true, tm: true },
@@ -597,12 +611,28 @@ async function saveState() {
   } catch (e) { console.warn("save failed", e); }
 }
 
+function normalizeRates(rates, defaults) {
+  return rates.map(r => {
+    if (typeof r.price === "number") return r;
+    // migrate from the old Core/Advisory/MS shape
+    const price = r.priceCore ?? r.priceAdvisory ?? r.priceMS ?? (defaults.find(d => d.name === r.name) || {}).price ?? 0;
+    return { name: r.name, cost: r.cost, price };
+  });
+}
+
 async function loadState() {
   try {
     if (window.storage) {
-      const res = await window.storage.get("dc-estimate-state-v3", false);
-      if (res && res.value) {
-        const parsed = JSON.parse(res.value);
+      let res = await window.storage.get("dc-estimate-state-v3", false).catch(() => null);
+      let parsed = res && res.value ? JSON.parse(res.value) : null;
+
+      if (!parsed) {
+        // one-time migration from the previous storage key/schema
+        const old = await window.storage.get("dc-estimate-state-v2", false).catch(() => null);
+        if (old && old.value) parsed = JSON.parse(old.value);
+      }
+
+      if (parsed) {
         const d = defaultState();
         state = Object.assign(d, parsed);
         state.discovery = Object.assign(d.discovery, parsed.discovery || {});
@@ -614,40 +644,19 @@ async function loadState() {
         state.tm = Object.assign(d.tm, parsed.tm || {});
         state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
         state.projectMode = parsed.projectMode === "fixed" ? "fixed" : "hourly";
-        if (!parsed.rates || !parsed.rates.length) state.rates = d.rates;
+        state.projectRange = Object.assign(d.projectRange, parsed.projectRange || {});
+
+        state.rates = (!parsed.rates || !parsed.rates.length) ? d.rates : normalizeRates(parsed.rates, d.rates);
         if (!parsed.team || !parsed.team.length) state.team = d.team;
         if (!parsed.fixedLines || !parsed.fixedLines.length) state.fixedLines = d.fixedLines;
         if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
+
         // migrate old single tm.sla to per-line if present
         if (parsed.tm && parsed.tm.sla && Array.isArray(state.tm.lines)) {
           state.tm.lines.forEach(l => { if (!l.sla) l.sla = parsed.tm.sla; });
         }
         state.tm.lines.forEach(l => { if (!l.sla) l.sla = "1"; });
         state.fixedLines.forEach(l => { if (!l.phase) l.phase = "pb"; });
-      } else {
-        // no saved v3 state yet — try to migrate from the previous version's key
-        try {
-          const old = await window.storage.get("dc-estimate-state-v2", false);
-          if (old && old.value) {
-            const parsed = JSON.parse(old.value);
-            const d = defaultState();
-            state = Object.assign(d, parsed);
-            state.discovery = Object.assign(d.discovery, parsed.discovery || {});
-            state.project = Object.assign(d.project, parsed.project || {});
-            state.phases = Object.assign(d.phases, parsed.phases || {});
-            state.ms = Object.assign(d.ms, parsed.ms || {});
-            state.ms.hours = Object.assign(d.ms.hours, (parsed.ms && parsed.ms.hours) || {});
-            state.ms.rateClass = Object.assign(d.ms.rateClass, (parsed.ms && parsed.ms.rateClass) || {});
-            state.tm = Object.assign(d.tm, parsed.tm || {});
-            state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
-            state.projectMode = "hourly";
-            state.fixedLines = d.fixedLines;
-            if (!parsed.rates || !parsed.rates.length) state.rates = d.rates;
-            if (!parsed.team || !parsed.team.length) state.team = d.team;
-            if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
-            state.tm.lines.forEach(l => { if (!l.sla) l.sla = "1"; });
-          }
-        } catch (e2) { /* nothing to migrate */ }
       }
     }
   } catch (e) { /* no saved state yet */ }
@@ -666,14 +675,9 @@ function fmtPct(n) {
 function rateFor(rateClassName) {
   return state.rates.find(r => r.name === rateClassName) || state.rates[0];
 }
-function priceForBilling(rate, billing) {
-  if (billing === "Advisory") return rate.priceAdvisory;
-  if (billing === "Managed Services") return rate.priceMS;
-  return rate.priceCore;
-}
 function marginApproval(margin) {
   if (margin >= 0.64) return { label: "None needed — OK to present", tone: "good" };
-  if (margin >= 0.55) return { label: "Approval required: Lance (COO)", tone: "warn" };
+  if (margin >= 0.55) return { label: "Approval required: Leadership (COO)", tone: "warn" };
   return { label: "Approval required: COO + Owner", tone: "bad" };
 }
 function marginPillClass(margin) {
@@ -688,7 +692,7 @@ function computeTeamLines() {
   return state.team.map(t => {
     const rate = rateFor(t.rateClass);
     const cost = rate ? rate.cost : 0;
-    const price = rate ? priceForBilling(rate, t.billing) : 0;
+    const price = rate ? rate.price : 0;
     const hours = {
       planning: Number(t.planning) || 0,
       discovery: Number(t.discovery) || 0,
@@ -710,7 +714,7 @@ function computeFixedLines() {
     const cost = rate ? rate.cost : 0;
     const hours = Number(t.hours) || 0;
     const lineCost = hours * cost;
-    const suggestedPrice = rate ? hours * rate.priceCore : 0;
+    const suggestedPrice = rate ? hours * rate.price : 0;
     const price = Number(t.price) || 0;
     const margin = price > 0 ? (price - lineCost) / price : 0;
     return { ...t, cost, hours, lineCost, suggestedPrice, price, margin };
@@ -762,6 +766,21 @@ function computeProjectTotals() {
 function computeActivePhaseSummary() {
   const totals = computeProjectTotals();
   return totals.mode === "fixed" ? computeFixedPhaseSummary(totals.lines) : computePhaseSummary(totals.lines);
+}
+
+function computeProjectRange() {
+  const totals = computeProjectTotals();
+  const r = state.projectRange;
+  const costLowPct = Number(r.costLowPct) || 0;
+  const costHighPct = Number(r.costHighPct) || 0;
+  const hoursLowPct = Number(r.hoursLowPct) || 0;
+  const hoursHighPct = Number(r.hoursHighPct) || 0;
+  return {
+    costLow: totals.totalCost * (1 - costLowPct / 100),
+    costHigh: totals.totalCost * (1 + costHighPct / 100),
+    hoursLow: totals.totalHours * (1 - hoursLowPct / 100),
+    hoursHigh: totals.totalHours * (1 + hoursHighPct / 100),
+  };
 }
 
 /* ---- Timeline dates ---- */
@@ -840,7 +859,7 @@ function computeMsTiers() {
     const rateClassName = state.ms.rateClass[region.key] || region.defaultRateClass;
     const rateCard = rateFor(rateClassName);
     const cost = rateCard ? rateCard.cost : 0;
-    const rate = (rateCard ? rateCard.priceMS : 0) * discount;
+    const rate = (rateCard ? rateCard.price : 0) * discount;
     const hrsPerWeek = Number(state.ms.hours[region.key]) || 0;
     const weeklyRevenue = hrsPerWeek * rate;
     const totalHours = hrsPerWeek * weeks;
@@ -879,7 +898,7 @@ function computeTmLines() {
   return state.tm.lines.map(t => {
     const rate = rateFor(t.rateClass);
     const cost = rate ? rate.cost : 0;
-    const basePrice = rate ? priceForBilling(rate, t.billing) : 0;
+    const basePrice = rate ? rate.price : 0;
     const price = basePrice * slaMultiplier(t.sla);
     const hours = Number(t.hours) || 0;
     const lineCost = hours * cost;
@@ -914,14 +933,22 @@ function el(tag, attrs = {}, children = []) {
   return e;
 }
 
-function numInput(value, onChange, editable) {
+function numInput(value, onChange, editable, locked) {
   const input = document.createElement("input");
   input.type = "number";
   input.step = "0.01";
   input.value = value;
   input.className = editable ? "editable" : "";
   input.style.textAlign = "right";
-  input.addEventListener("input", () => onChange(Number(input.value) || 0));
+  if (locked) {
+    input.disabled = true;
+    input.title = "Fixed salaried cost — not editable";
+    input.style.background = "#F1F0EE";
+    input.style.color = "#8a8a8a";
+    input.style.cursor = "not-allowed";
+  } else {
+    input.addEventListener("input", () => onChange(Number(input.value) || 0));
+  }
   const td = document.createElement("td");
   td.appendChild(input);
   return td;
@@ -953,32 +980,6 @@ function renderTrackCards() {
     });
     wrap.appendChild(card);
   });
-}
-
-/* ---- Project pricing model selector cards ---- */
-
-function renderProjectModeCards() {
-  const wrap = document.getElementById("projectModeCards");
-  wrap.innerHTML = "";
-  PROJECT_MODES.forEach(m => {
-    const card = el("div", { class: "track-card" + (state.projectMode === m.key ? " selected" : "") }, [
-      el("div", { class: "tc-radio" }),
-      el("div", { class: "tc-title" }, m.label),
-      el("div", { class: "tc-desc" }, m.desc),
-    ]);
-    card.addEventListener("click", () => {
-      state.projectMode = m.key;
-      renderAll(); saveState();
-    });
-    wrap.appendChild(card);
-  });
-}
-
-function updateProjectModeVisibility() {
-  const hourlyCard = document.getElementById("hourlyTeamCard");
-  const fixedCard = document.getElementById("fixedTeamCard");
-  if (hourlyCard) hourlyCard.style.display = state.projectMode === "fixed" ? "none" : "";
-  if (fixedCard) fixedCard.style.display = state.projectMode === "fixed" ? "" : "none";
 }
 
 /* ---- Project Info + Discovery bindings ---- */
@@ -1023,25 +1024,20 @@ function renderRatesTable() {
   const body = document.getElementById("ratesBody");
   body.innerHTML = "";
   state.rates.forEach((r) => {
-    const marginCore = r.priceCore > 0 ? (r.priceCore - r.cost) / r.priceCore : 0;
-    const marginAdv = r.priceAdvisory > 0 ? (r.priceAdvisory - r.cost) / r.priceAdvisory : 0;
-    const marginMS = r.priceMS > 0 ? (r.priceMS - r.cost) / r.priceMS : 0;
+    const margin = r.price > 0 ? (r.price - r.cost) / r.price : 0;
+    const locked = LOCKED_COST_CLASSES.has(r.name);
 
     const tr = el("tr", {}, [
-      el("td", {}, r.name),
-      numInput(r.cost, v => { r.cost = v; renderAll(); saveState(); }),
-      numInput(r.priceCore, v => { r.priceCore = v; renderAll(); saveState(); }, true),
-      el("td", { class: "num" }, fmtPct(marginCore)),
-      numInput(r.priceAdvisory, v => { r.priceAdvisory = v; renderAll(); saveState(); }, true),
-      el("td", { class: "num" }, fmtPct(marginAdv)),
-      numInput(r.priceMS, v => { r.priceMS = v; renderAll(); saveState(); }, true),
-      el("td", { class: "num" }, fmtPct(marginMS)),
+      el("td", {}, r.name + (locked ? " 🔒" : "")),
+      numInput(r.cost, v => { r.cost = v; renderAll(); saveState(); }, false, locked),
+      numInput(r.price, v => { r.price = v; renderAll(); saveState(); }, true),
+      el("td", { class: "num" }, fmtPct(margin)),
     ]);
     body.appendChild(tr);
   });
 }
 
-/* ---- Project track: hourly (T&M) ---- */
+/* ---- Project track ---- */
 
 function renderTeamTable() {
   const body = document.getElementById("teamBody");
@@ -1069,16 +1065,6 @@ function renderTeamTable() {
     rateSel.addEventListener("change", () => { t.rateClass = rateSel.value; renderAll(); saveState(); });
     tr.appendChild(el("td", {}, rateSel));
 
-    const billSel = document.createElement("select");
-    BILLING_TYPES.forEach(b => {
-      const opt = document.createElement("option");
-      opt.value = b; opt.textContent = b;
-      if (b === t.billing) opt.selected = true;
-      billSel.appendChild(opt);
-    });
-    billSel.addEventListener("change", () => { t.billing = billSel.value; renderAll(); saveState(); });
-    tr.appendChild(el("td", {}, billSel));
-
     ["planning", "discovery", "pb", "deploy", "wrapup"].forEach(key => {
       const input = document.createElement("input");
       input.type = "number"; input.min = "0"; input.value = t[key];
@@ -1103,8 +1089,6 @@ function renderTeamTable() {
     body.appendChild(tr);
   });
 }
-
-/* ---- Project track: fixed bid ---- */
 
 function renderFixedTable() {
   const body = document.getElementById("fixedBody");
@@ -1173,6 +1157,48 @@ function renderFixedTable() {
 
     body.appendChild(tr);
   });
+}
+
+function renderProjectModeCards() {
+  const wrap = document.getElementById("projectModeCards");
+  wrap.innerHTML = "";
+  PROJECT_MODES.forEach(m => {
+    const card = el("div", { class: "track-card" + (state.projectMode === m.key ? " selected" : "") }, [
+      el("div", { class: "tc-radio" }),
+      el("div", { class: "tc-title" }, m.label),
+      el("div", { class: "tc-desc" }, m.desc),
+    ]);
+    card.addEventListener("click", () => {
+      state.projectMode = m.key;
+      renderAll(); saveState();
+    });
+    wrap.appendChild(card);
+  });
+}
+
+function updateProjectModeVisibility() {
+  const hourlyCard = document.getElementById("hourlyTeamCard");
+  const fixedCard = document.getElementById("fixedTeamCard");
+  if (hourlyCard) hourlyCard.style.display = state.projectMode === "fixed" ? "none" : "";
+  if (fixedCard) fixedCard.style.display = state.projectMode === "fixed" ? "" : "none";
+}
+
+function renderProjectRangeFields() {
+  const r = state.projectRange;
+  document.getElementById("range_cost_low").value = r.costLowPct;
+  document.getElementById("range_cost_high").value = r.costHighPct;
+  document.getElementById("range_hours_low").value = r.hoursLowPct;
+  document.getElementById("range_hours_high").value = r.hoursHighPct;
+}
+
+function renderProjectRangeKpis() {
+  const range = computeProjectRange();
+  const wrap = document.getElementById("projectRangeKpis");
+  wrap.innerHTML = "";
+  wrap.appendChild(kpiCard("Cost — low estimate", fmtMoney(range.costLow), "grey"));
+  wrap.appendChild(kpiCard("Cost — high estimate", fmtMoney(range.costHigh), "grey"));
+  wrap.appendChild(kpiCard("Hours — low estimate", Math.round(range.hoursLow).toLocaleString("en-US"), "navy"));
+  wrap.appendChild(kpiCard("Hours — high estimate", Math.round(range.hoursHigh).toLocaleString("en-US"), "navy"));
 }
 
 function renderProjectKpis() {
@@ -1338,16 +1364,6 @@ function renderTmTable() {
     rateSel.addEventListener("change", () => { t.rateClass = rateSel.value; renderAll(); saveState(); });
     tr.appendChild(el("td", {}, rateSel));
 
-    const billSel = document.createElement("select");
-    BILLING_TYPES.forEach(b => {
-      const opt = document.createElement("option");
-      opt.value = b; opt.textContent = b;
-      if (b === t.billing) opt.selected = true;
-      billSel.appendChild(opt);
-    });
-    billSel.addEventListener("change", () => { t.billing = billSel.value; renderAll(); saveState(); });
-    tr.appendChild(el("td", {}, billSel));
-
     const slaSel = document.createElement("select");
     SLA_TIERS.forEach(s => {
       const opt = document.createElement("option");
@@ -1453,7 +1469,9 @@ function renderAll() {
   updateProjectModeVisibility();
   renderTeamTable();
   renderFixedTable();
+  renderProjectRangeFields();
   renderProjectKpis();
+  renderProjectRangeKpis();
   const segs = buildTimelinePhases();
   renderGantt("ganttWrap", segs);
   renderMsFields();
@@ -1578,6 +1596,7 @@ function buildProjectPages() {
   if (totals.totalHours <= 0 && totals.totalPrice <= 0) return "";
   const approval = marginApproval(totals.margin);
   const phaseSummary = computeActivePhaseSummary();
+  const range = computeProjectRange();
   const segs = buildTimelinePhases();
   const svgMarkup = buildStandaloneGanttSvg(segs, 950);
   const p = state.project;
@@ -1597,7 +1616,6 @@ function buildProjectPages() {
       <tr>
         <td>${escapeHtml(l.role)}</td>
         <td>${escapeHtml(l.rateClass)}</td>
-        <td>${escapeHtml(l.billing)}</td>
         <td class="num">${Math.round(l.totalHours)}</td>
         <td class="num">$${l.price.toFixed(0)}</td>
         <td class="num">${fmtMoney(l.linePrice)}</td>
@@ -1605,7 +1623,7 @@ function buildProjectPages() {
 
   const detailHeader = isFixed
     ? `<tr><th>Functionality</th><th>Deliverable</th><th>Phase</th><th class="num">Est. hours</th><th class="num">Fixed price</th></tr>`
-    : `<tr><th>Role</th><th>Rate class</th><th>Billing</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr>`;
+    : `<tr><th>Role</th><th>Rate class</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr>`;
 
   const detailTitle = isFixed ? "Deliverables" : "Project team";
 
@@ -1625,6 +1643,13 @@ function buildProjectPages() {
       ["Project hours", Math.round(totals.totalHours).toLocaleString("en-US")],
       ["Margin", fmtPct(totals.margin)],
       ["Approval", approval.label],
+    ])}
+    <h2 class="pg-h2">Estimate range</h2>
+    ${pdfKpis([
+      ["Cost — low", fmtMoney(range.costLow)],
+      ["Cost — high", fmtMoney(range.costHigh)],
+      ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
+      ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
     ])}
     <h2 class="pg-h2">Estimate by phase</h2>
     <table class="pg-table">
@@ -1694,7 +1719,6 @@ function buildTmPage() {
   const rows = totals.lines.map(l => `
     <tr>
       <td>${escapeHtml(l.rateClass)}</td>
-      <td>${escapeHtml(l.billing)}</td>
       <td>${escapeHtml(slaLabelFor(l.sla))}</td>
       <td class="num">${Math.round(l.hours)}</td>
       <td class="num">$${l.price.toFixed(0)}</td>
@@ -1713,7 +1737,7 @@ function buildTmPage() {
     ])}
     <h2 class="pg-h2">Estimated lines</h2>
     <table class="pg-table">
-      <thead><tr><th>Rate class</th><th>Billing</th><th>SLA tier</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr></thead>
+      <thead><tr><th>Rate class</th><th>SLA tier</th><th class="num">Hours</th><th class="num">Price/hr</th><th class="num">Line price</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <p class="pg-note">This track replaces all unstructured T&amp;M and ad-hoc engagements. Any exception requires DC Leadership approval${state.tm.approval ? " (" + escapeHtml(state.tm.approval) + ")" : ""}. Discovery fee credits toward the SLA tier setup fee or first queue credit.</p>
@@ -1774,6 +1798,239 @@ function exportPdf() {
   }, 500);
 }
 
+/* ============================== Word (.docx) Export ============================== */
+
+function wEscape(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// One paragraph of plain or styled text.
+function wPara(text, opts) {
+  opts = opts || {};
+  const rPr = `<w:rPr>${opts.bold ? "<w:b/>" : ""}${opts.color ? `<w:color w:val="${opts.color}"/>` : ""}${opts.size ? `<w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/>` : ""}</w:rPr>`;
+  const pPr = `<w:pPr>${opts.align ? `<w:jc w:val="${opts.align}"/>` : ""}${opts.spacingAfter != null ? `<w:spacing w:after="${opts.spacingAfter}"/>` : ""}</w:pPr>`;
+  const text2 = text === "" ? "" : wEscape(text);
+  return `<w:p>${pPr}<w:r>${rPr}<w:t xml:space="preserve">${text2}</w:t></w:r></w:p>`;
+}
+
+// Section heading: red, bold, spaced.
+function wHeading(text) {
+  return wPara(text, { bold: true, color: "912121", size: 26, spacingAfter: 120 });
+}
+
+// Simple bordered table. headers: string[]. rows: string[][].
+function wTable(headers, rows) {
+  const totalWidth = 9000;
+  const colWidth = Math.floor(totalWidth / headers.length);
+  const borders = `<w:tblBorders>
+    <w:top w:val="single" w:sz="4" w:color="D8D5D2"/>
+    <w:left w:val="single" w:sz="4" w:color="D8D5D2"/>
+    <w:bottom w:val="single" w:sz="4" w:color="D8D5D2"/>
+    <w:right w:val="single" w:sz="4" w:color="D8D5D2"/>
+    <w:insideH w:val="single" w:sz="4" w:color="D8D5D2"/>
+    <w:insideV w:val="single" w:sz="4" w:color="D8D5D2"/>
+  </w:tblBorders>`;
+  function cell(text, bold, shade) {
+    const rPr = bold ? "<w:rPr><w:b/><w:sz w:val=\"18\"/></w:rPr>" : "<w:rPr><w:sz w:val=\"18\"/></w:rPr>";
+    const shd = shade ? `<w:shd w:val="clear" w:fill="${shade}"/>` : "";
+    return `<w:tc><w:tcPr><w:tcW w:w="${colWidth}" w:type="dxa"/>${shd}</w:tcPr><w:p><w:r>${rPr}<w:t xml:space="preserve">${wEscape(text)}</w:t></w:r></w:p></w:tc>`;
+  }
+  const headRow = `<w:tr>${headers.map(h => cell(h, true, "F7F6F5")).join("")}</w:tr>`;
+  const bodyRows = rows.map(r => `<w:tr>${r.map(c => cell(String(c))).join("")}</w:tr>`).join("");
+  const grid = headers.map(() => `<w:gridCol w:w="${colWidth}"/>`).join("");
+  return `<w:tbl><w:tblPr><w:tblW w:w="${totalWidth}" w:type="dxa"/>${borders}</w:tblPr><w:tblGrid>${grid}</w:tblGrid>${headRow}${bodyRows}</w:tbl>${wPara("", { spacingAfter: 160 })}`;
+}
+
+function wKpiLine(items) {
+  // Render KPI pairs as a compact two-column table (label/value) side by side isn't
+  // straightforward in plain OOXML without nested tables, so use a single row table instead.
+  const headers = items.map(i => i[0]);
+  const row = items.map(i => i[1]);
+  return wTable(headers, [row]);
+}
+
+function buildDocxBody() {
+  const p = state.project;
+  const disc = state.discovery;
+  const track = TRACKS.find(t => t.key === state.activeTrack);
+  const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  let body = "";
+
+  // Cover + discovery
+  body += wPara("Engagement Scoping & Estimate", { bold: true, size: 32, color: "912121", spacingAfter: 40 });
+  body += wPara("Prepared " + today, { color: "595959", size: 18, spacingAfter: 200 });
+  body += wPara(p.project || "Untitled Engagement", { bold: true, size: 28, spacingAfter: 20 });
+  body += wPara(p.account || "", { color: "595959", size: 20, spacingAfter: 200 });
+  body += wTable(
+    ["Sales owner", "Sales engineer", "Scope approver", "Financial approver", "Anticipated start", "Legal approver"],
+    [[p.salesowner || "—", p.se || "—", p.scopeappr || "—", p.finappr || "—",
+      p.startdate ? fmtDate(new Date(p.startdate + "T00:00:00")) : "—", p.legalappr || "—"]]
+  );
+
+  if (state.pdfOptions.discovery) {
+    body += wHeading("Recommended track");
+    body += wPara(`Every engagement enters through paid discovery. Based on discovery findings, this proposal recommends the ${track ? track.label : "—"} track — ${track ? track.desc : ""}`, { size: 18, spacingAfter: 120 });
+    body += wKpiLine([
+      ["Discovery fee", fmtMoney(disc.fee)],
+      ["Sessions", String(disc.sessions)],
+      ["Credits toward", track ? track.creditsTo : "—"],
+      ["Status", disc.status],
+    ]);
+    body += wPara("Discovery is non-refundable but always credits forward against the client's chosen track. The fee is earned through delivery of the discovery report — not contingent on the client proceeding to any track.", { color: "595959", size: 16, spacingAfter: 240 });
+  }
+
+  // Project
+  const totals = computeProjectTotals();
+  if (state.pdfOptions.project && (totals.totalHours > 0 || totals.totalPrice > 0)) {
+    const approval = marginApproval(totals.margin);
+    const phaseSummary = computeActivePhaseSummary();
+    const range = computeProjectRange();
+    const isFixed = totals.mode === "fixed";
+    const segs = buildTimelinePhases();
+
+    body += wHeading("Project — Scoped Deliverable");
+    body += wPara("Pricing model: " + (isFixed ? "Fixed Bid" : "Time & Materials"), { size: 18, spacingAfter: 120 });
+    body += wKpiLine([
+      ["Project price", fmtMoney(totals.totalPrice)],
+      ["Project hours", Math.round(totals.totalHours).toLocaleString("en-US")],
+      ["Margin", fmtPct(totals.margin)],
+      ["Approval", approval.label],
+    ]);
+    body += wKpiLine([
+      ["Cost — low", fmtMoney(range.costLow)],
+      ["Cost — high", fmtMoney(range.costHigh)],
+      ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
+      ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
+    ]);
+
+    body += wHeading("Estimate by phase");
+    body += wTable(
+      ["Phase", "Hours", "Price"],
+      [...phaseSummary.map(ph => [ph.label, String(Math.round(ph.hours)), fmtMoney(ph.price)]),
+       ["Total", String(Math.round(totals.totalHours)), fmtMoney(totals.totalPrice)]]
+    );
+
+    body += wHeading(isFixed ? "Deliverables" : "Project team");
+    if (isFixed) {
+      body += wTable(
+        ["Functionality", "Deliverable", "Phase", "Est. hours", "Fixed price"],
+        totals.lines.map(l => [l.name || "Untitled", l.deliverable || "", PHASES[PHASE_KEYS.indexOf(l.phase)] || "", String(Math.round(l.hours)), fmtMoney(l.price)])
+      );
+    } else {
+      body += wTable(
+        ["Role", "Rate class", "Hours", "Price/hr", "Line price"],
+        totals.lines.map(l => [l.role, l.rateClass, String(Math.round(l.totalHours)), "$" + l.price.toFixed(0), fmtMoney(l.linePrice)])
+      );
+    }
+
+    body += wHeading("Delivery timeline");
+    body += wTable(
+      ["Phase", "Start", "End", "Duration"],
+      segs.map(s => [s.label, fmtDate(s.start), fmtDate(s.end), s.weeks + (s.weeks === 1 ? " week" : " weeks")])
+    );
+    body += wPara(`P&B reflects ${state.phases.pb_sprints} sprints × ${state.phases.sprint_len} weeks. Statement of Work governs final scope, timeline, and acceptance criteria.`, { color: "595959", size: 16, spacingAfter: 240 });
+  }
+
+  // Managed Services
+  const mt = computeMsTotals();
+  if (state.pdfOptions.ms && mt.totalHours > 0) {
+    const mApproval = marginApproval(mt.margin);
+    body += wHeading("Managed Services — Subscription");
+    body += wPara(`Named engagement lead: ${state.ms.lead || "TBD"} · Cadence: ${state.ms.cadence} · QBR: ${state.ms.qbr} · Term: ${mt.months} months`, { size: 18, spacingAfter: 120 });
+    body += wKpiLine([
+      ["Monthly invoice", fmtMoney(mt.monthlyInvoice)],
+      ["Contract value", fmtMoney(mt.totalRevenue)],
+      ["Blended rate", "$" + mt.blendedRate.toFixed(0) + "/hr"],
+      ["Margin", fmtPct(mt.margin)],
+    ]);
+    body += wHeading("Delivery mix");
+    body += wTable(
+      ["Tier", "Hrs/wk", "Rate/hr", "Total hours", "Contract revenue"],
+      mt.tiers.filter(t => t.hrsPerWeek > 0).map(t => [t.label, String(t.hrsPerWeek), "$" + t.rate.toFixed(0), String(Math.round(t.totalHours)), fmtMoney(t.revenue)])
+    );
+    body += wPara(`Approval status: ${mApproval.label}. Discovery fee credits toward the first month of subscription. Renewal and expansion are driven by quarterly business reviews.`, { color: "595959", size: 16, spacingAfter: 240 });
+  }
+
+  // Ad-Hoc T&M
+  const tt = computeTmTotals();
+  if (state.pdfOptions.tm && tt.totalHours > 0) {
+    const tApproval = marginApproval(tt.margin);
+    const tiersUsed = Array.from(new Set(tt.lines.map(l => slaLabelFor(l.sla)))).join(", ");
+    body += wHeading("Ad-Hoc T&M — Client Portal");
+    body += wPara(`SLA tiers in this quote: ${tiersUsed || "Standard"} · Est. requests/month: ${state.tm.requests} · Fulfilled from the shared resource pool, no dedicated resource assigned.`, { size: 18, spacingAfter: 120 });
+    body += wKpiLine([
+      ["Block price", fmtMoney(tt.totalPrice)],
+      ["Block hours", Math.round(tt.totalHours).toLocaleString("en-US")],
+      ["Margin", fmtPct(tt.margin)],
+      ["Approval", tApproval.label],
+    ]);
+    body += wHeading("Estimated lines");
+    body += wTable(
+      ["Rate class", "SLA tier", "Hours", "Price/hr", "Line price"],
+      tt.lines.map(l => [l.rateClass, slaLabelFor(l.sla), String(Math.round(l.hours)), "$" + l.price.toFixed(0), fmtMoney(l.linePrice)])
+    );
+    body += wPara(`This track replaces all unstructured T&M and ad-hoc engagements. Any exception requires DC Leadership approval${state.tm.approval ? " (" + state.tm.approval + ")" : ""}. Discovery fee credits toward the SLA tier setup fee or first queue credit.`, { color: "595959", size: 16, spacingAfter: 240 });
+  }
+
+  body += wPara(`Demand Chain — Confidential — © ${new Date().getFullYear()} Demand Chain | www.demandchain.com`, { color: "8a8a8a", size: 14 });
+
+  return body;
+}
+
+async function exportWord() {
+  if (typeof JSZip === "undefined") {
+    alert("Word export needs an internet connection to load a small helper library (JSZip) — please check your connection and try again.");
+    return;
+  }
+  const btn = document.getElementById("btnExportWord") || document.getElementById("btnExportWord2");
+  const origText = btn ? btn.textContent : null;
+  if (btn) btn.textContent = "Building…";
+
+  try {
+    const body = buildDocxBody();
+    const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>
+${body}
+<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>
+</w:body>
+</w:document>`;
+
+    const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`;
+
+    const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", contentTypesXml);
+    zip.file("_rels/.rels", relsXml);
+    zip.file("word/document.xml", documentXml);
+
+    const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const nameBase = (state.project.project || "engagement-estimate").replace(/[^a-z0-9\-_ ]/gi, "").trim().replace(/\s+/g, "_") || "engagement-estimate";
+    a.href = url;
+    a.download = nameBase + ".docx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) {
+    console.error("Word export failed", e);
+    alert("Word export failed — please try again, or use the PDF export instead.");
+  } finally {
+    if (btn && origText) btn.textContent = origText;
+  }
+}
+
 /* ============================== Init ================================ */
 
 async function init() {
@@ -1783,7 +2040,7 @@ async function init() {
   renderAll();
 
   document.getElementById("btnAddResource").addEventListener("click", () => {
-    state.team.push({ role: "New resource", rateClass: state.rates[0].name, billing: "Core", planning: 0, discovery: 0, pb: 0, deploy: 0, wrapup: 0 });
+    state.team.push({ role: "New resource", rateClass: state.rates[0].name, planning: 0, discovery: 0, pb: 0, deploy: 0, wrapup: 0 });
     renderAll(); saveState();
   });
   document.getElementById("btnAddFixedLine").addEventListener("click", () => {
@@ -1795,7 +2052,7 @@ async function init() {
     renderAll(); saveState();
   });
   document.getElementById("btnAddTmLine").addEventListener("click", () => {
-    state.tm.lines.push({ rateClass: state.rates[0].name, billing: "Core", sla: "1", hours: 0 });
+    state.tm.lines.push({ rateClass: state.rates[0].name, sla: "1", hours: 0 });
     renderAll(); saveState();
   });
   document.getElementById("btnReset").addEventListener("click", () => {
@@ -1814,6 +2071,8 @@ async function init() {
   });
   document.getElementById("btnExport").addEventListener("click", exportPdf);
   document.getElementById("btnExport2").addEventListener("click", exportPdf);
+  document.getElementById("btnExportWord").addEventListener("click", exportWord);
+  document.getElementById("btnExportWord2").addEventListener("click", exportWord);
 
   ["ph_planning_wk", "ph_discovery_wk", "ph_pb_sprints", "ph_sprint_len", "ph_deploy_wk", "ph_wrapup_wk"].forEach(id => {
     const map = {
@@ -1824,6 +2083,19 @@ async function init() {
     input.value = state.phases[map[id]];
     input.addEventListener("input", () => {
       state.phases[map[id]] = Number(input.value) || 0;
+      renderAll(); saveState();
+    });
+  });
+
+  // Estimate range bindings
+  const rangeMap = {
+    range_cost_low: "costLowPct", range_cost_high: "costHighPct",
+    range_hours_low: "hoursLowPct", range_hours_high: "hoursHighPct",
+  };
+  Object.entries(rangeMap).forEach(([id, key]) => {
+    const input = document.getElementById(id);
+    input.addEventListener("input", () => {
+      state.projectRange[key] = Number(input.value) || 0;
       renderAll(); saveState();
     });
   });
