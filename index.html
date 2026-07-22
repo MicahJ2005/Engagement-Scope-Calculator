@@ -129,6 +129,18 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
 .storage-note{font-size:11.5px;color:var(--dc-grey);background:#FBF9F5;border:1px solid #EFE9DE;border-radius:8px;padding:8px 12px;margin-bottom:14px;}
 
+/* ---------- Weekly timeline grid ---------- */
+#weeklyGridTable{border-collapse:collapse;font-size:12px;user-select:none;}
+#weeklyGridTable th,#weeklyGridTable td{padding:3px 4px;text-align:center;border:1px solid #EFEDEB;white-space:nowrap;}
+#weeklyGridTable th.wg-resource,#weeklyGridTable td.wg-resource{position:sticky;left:0;background:#fff;z-index:2;text-align:left;min-width:150px;padding:6px 8px;border-right:2px solid var(--dc-grey-light);}
+#weeklyGridTable th.wg-phase{color:#fff;font-size:10.5px;font-weight:bold;padding:4px 2px;}
+#weeklyGridTable th.wg-week{font-size:10px;color:var(--dc-grey);font-weight:normal;min-width:44px;}
+#weeklyGridTable td.wg-cell input{width:40px;padding:3px 2px;text-align:center;font-size:12px;border:1px solid #E3E0DC;border-radius:4px;cursor:cell;}
+#weeklyGridTable td.wg-cell input:focus{outline:none;border-color:var(--dc-red);box-shadow:0 0 0 2px rgba(145,33,33,.15);}
+#weeklyGridTable td.wg-total,#weeklyGridTable th.wg-total{font-weight:bold;background:#FBFAF9;position:sticky;right:0;}
+#weeklyGridTable tfoot td{font-weight:bold;background:#F7F6F5;}
+#weeklyGridTable.wg-dragging{cursor:cell;}
+
 /* ---------- Track cards (business line selector) ---------- */
 .track-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:6px;}
 @media (max-width:900px){.track-cards{grid-template-columns:1fr;}}
@@ -279,9 +291,15 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       </div>
     </div>
 
+    <div class="card" id="hourlyDetailModeCard">
+      <h2>Hours entry</h2>
+      <p class="sub">Choose how you enter hours for the hourly team below. Weekly timeline generates its columns directly from the phase &amp; sprint durations above — resize a phase there and the grid updates to match.</p>
+      <div class="track-cards" id="hourlyDetailModeCards" style="grid-template-columns:1fr 1fr;"></div>
+    </div>
+
     <div class="card" id="hourlyTeamCard">
       <h2>Project team</h2>
-      <p class="sub">Add each resource, pick a rate class, then allocate their hours across phases.</p>
+      <p class="sub" id="hourlyTeamCardSub">Add each resource, pick a rate class, then allocate their hours across phases.</p>
       <div class="tbl-wrap">
         <table id="teamTable">
           <thead>
@@ -308,6 +326,15 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
       <div class="row-actions">
         <button class="btn btn-sm btn-primary" id="btnAddResource">+ Add resource</button>
       </div>
+    </div>
+
+    <div class="card" id="weeklyGridCard" style="display:none;">
+      <h2>Weekly timeline</h2>
+      <p class="sub">Click and drag across a resource's row to paint the same hours across multiple weeks — like a fill handle. Type into a single cell for an exact number. Totals roll up into the phase hours above automatically.</p>
+      <div class="tbl-wrap">
+        <table id="weeklyGridTable"><thead id="weeklyGridHead"></thead><tbody id="weeklyGridBody"></tbody><tfoot id="weeklyGridFoot"></tfoot></table>
+      </div>
+      <div class="legend" id="weeklyGridLegend"></div>
     </div>
 
     <div class="card" id="fixedTeamCard" style="display:none;">
@@ -588,6 +615,11 @@ const PROJECT_MODES = [
   { key: "fixed", label: "Fixed Bid", desc: "Named functionality/deliverable lines, each with its own client-facing fixed price. Bills the agreed price regardless of hours worked." },
 ];
 
+const HOURLY_DETAIL_MODES = [
+  { key: "simple", label: "Simple (phase totals)", desc: "Type a total number of hours per phase for each resource — fast for rough scoping." },
+  { key: "weekly", label: "Weekly timeline (drag to fill)", desc: "Drag hours across a week-by-week grid generated from your phase & sprint durations — closer to how you'd actually staff it." },
+];
+
 // Managed Services delivery tiers — cost & price come live from the Rate Card.
 // Term-length discount anchors mirror the DC Way calculator's standard subscription
 // pricing (6 mo = full rate, 12 mo ≈ -4%, 24 mo ≈ -12%).
@@ -617,6 +649,7 @@ function defaultState() {
     rates: DEFAULT_RATES.map(r => ({ name: r[0], cost: r[1], price: r[2] })),
     phases: { planning_wk: 1, discovery_wk: 2, pb_sprints: 6, sprint_len: 2, deploy_wk: 1, wrapup_wk: 1 },
     projectMode: "hourly",
+    hourlyDetailMode: "simple",
     team: [
       { role: "Solution Architect", rateClass: "Director", planning: 20, discovery: 40, pb: 60, deploy: 10, wrapup: 8 },
       { role: "SBA Lead", rateClass: "Manager", planning: 8, discovery: 30, pb: 160, deploy: 30, wrapup: 12 },
@@ -689,6 +722,7 @@ async function loadState() {
         state.pdfOptions = Object.assign(d.pdfOptions, parsed.pdfOptions || {});
         state.rollupOptions = Object.assign(d.rollupOptions, parsed.rollupOptions || {});
         state.projectMode = parsed.projectMode === "fixed" ? "fixed" : "hourly";
+        state.hourlyDetailMode = parsed.hourlyDetailMode === "weekly" ? "weekly" : "simple";
         state.projectRange = Object.assign(d.projectRange, parsed.projectRange || {});
 
         state.rates = (!parsed.rates || !parsed.rates.length) ? d.rates : normalizeRates(parsed.rates, d.rates);
@@ -894,6 +928,75 @@ function buildTimelinePhases() {
 
 function fmtDate(d) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/* ---- Weekly timeline grid (Hourly project mode, "weekly" detail mode) ---- */
+
+// One descriptor per calendar week in the project, in phase order. weekInPhase
+// resets to 0 at the start of each phase, so grid data is keyed by
+// "<phaseKey>:<weekInPhase>" rather than a flat index — that way, adding or
+// removing a sprint only shifts P&B's own weeks, and every other phase's
+// already-entered hours are untouched.
+function buildProjectWeeks() {
+  const start = state.project.startdate ? mondayOf(new Date(state.project.startdate + "T00:00:00")) : mondayOf(new Date());
+  const p = state.phases;
+  const weeks = [];
+  let cursor = new Date(start);
+
+  function pushWeeks(phaseKey, phaseLabel, count) {
+    for (let i = 0; i < count; i++) {
+      const weekStart = new Date(cursor);
+      const weekEnd = new Date(cursor.getTime() + 7 * 86400000);
+      weeks.push({ index: weeks.length, phaseKey, phaseLabel, weekInPhase: i, weekStart, weekEnd });
+      cursor = weekEnd;
+    }
+  }
+
+  pushWeeks("planning", "Planning", Number(p.planning_wk) || 0);
+  pushWeeks("discovery", "Discovery", Number(p.discovery_wk) || 0);
+  const sprints = Number(p.pb_sprints) || 0;
+  const sprintLen = Number(p.sprint_len) || 1;
+  pushWeeks("pb", "P&B", sprints * sprintLen);
+  pushWeeks("deploy", "Deploy", Number(p.deploy_wk) || 0);
+  pushWeeks("wrapup", "Wrap-up", Number(p.wrapup_wk) || 0);
+
+  return weeks;
+}
+
+function weeklyKey(phaseKey, weekInPhase) {
+  return phaseKey + ":" + weekInPhase;
+}
+
+// The first time a resource is touched in weekly mode, seed its weekly grid by
+// evenly spreading its existing phase totals across that phase's weeks — so
+// switching modes doesn't reset anything, it just gets more granular.
+function ensureResourceWeekly(t, weeks) {
+  if (t.weeklyMap) return;
+  t.weeklyMap = {};
+  const weeksByPhase = {};
+  weeks.forEach(w => { (weeksByPhase[w.phaseKey] = weeksByPhase[w.phaseKey] || []).push(w.weekInPhase); });
+  PHASE_KEYS.forEach(key => {
+    const total = Number(t[key]) || 0;
+    const idxs = weeksByPhase[key] || [];
+    if (!idxs.length) return;
+    const base = Math.floor(total / idxs.length);
+    const remainder = total - base * idxs.length;
+    idxs.forEach((wi, i) => {
+      t.weeklyMap[weeklyKey(key, wi)] = base + (i < remainder ? 1 : 0);
+    });
+  });
+}
+
+// Weekly hours are the source of truth once a resource has a weeklyMap — this
+// rolls each phase's weeks back up into t.planning/discovery/pb/deploy/wrapup,
+// so every existing calculation (cost, price, margin, KPIs, PDF/Word) keeps
+// working unchanged.
+function recomputePhaseTotalsFromWeekly(t, weeks) {
+  const sums = { planning: 0, discovery: 0, pb: 0, deploy: 0, wrapup: 0 };
+  weeks.forEach(w => {
+    sums[w.phaseKey] += Number(t.weeklyMap[weeklyKey(w.phaseKey, w.weekInPhase)]) || 0;
+  });
+  PHASE_KEYS.forEach(key => { t[key] = sums[key]; });
 }
 
 /* ============================ Managed Services calc =========================== */
@@ -1230,7 +1333,12 @@ function renderTeamTable() {
     rateSel.addEventListener("change", () => { t.rateClass = rateSel.value; renderAll(); saveState(); });
     tr.appendChild(el("td", {}, rateSel));
 
+    const isWeeklyMode = state.hourlyDetailMode === "weekly";
     ["planning", "discovery", "pb", "deploy", "wrapup"].forEach(key => {
+      if (isWeeklyMode) {
+        tr.appendChild(el("td", { class: "num", "data-key": "team-" + key + "-" + idx }, String(Math.round(Number(t[key]) || 0))));
+        return;
+      }
       const input = document.createElement("input");
       input.type = "text"; input.inputMode = "decimal"; input.value = t[key];
       input.style.textAlign = "right";
@@ -1276,6 +1384,161 @@ function onTeamHourEdited(idx) {
     }
   }
   renderAll({ skipTeam: true });
+}
+
+/* ---- Weekly timeline grid rendering + drag-to-fill ---- */
+
+// Module-level drag state. Not part of app state — it's purely a UI interaction,
+// reset as soon as the mouse is released.
+let weeklyDrag = null; // { rowIdx, value }
+
+function weeklyCellKey(rowIdx, phaseKey, weekInPhase) {
+  return "wg-" + rowIdx + "-" + phaseKey + "-" + weekInPhase;
+}
+
+function renderWeeklyGrid() {
+  const head = document.getElementById("weeklyGridHead");
+  const body = document.getElementById("weeklyGridBody");
+  const foot = document.getElementById("weeklyGridFoot");
+  if (!head || state.projectMode !== "hourly" || state.hourlyDetailMode !== "weekly") return;
+
+  const weeks = buildProjectWeeks();
+  state.team.forEach(t => ensureResourceWeekly(t, weeks));
+
+  // --- header: phase group row + week row ---
+  head.innerHTML = "";
+  const phaseRow = document.createElement("tr");
+  phaseRow.appendChild(el("th", { class: "wg-resource" }, "Resource"));
+  let run = null;
+  const phaseHeaderCells = [];
+  weeks.forEach(w => {
+    if (run && run.phaseKey === w.phaseKey) { run.span++; }
+    else { run = { phaseKey: w.phaseKey, label: w.phaseLabel, span: 1 }; phaseHeaderCells.push(run); }
+  });
+  phaseHeaderCells.forEach(r => {
+    phaseRow.appendChild(el("th", { class: "wg-phase", colspan: String(r.span), style: "background:" + PHASE_COLORS[r.phaseKey] + ";" }, r.label));
+  });
+  phaseRow.appendChild(el("th", { class: "wg-total" }, ""));
+  head.appendChild(phaseRow);
+
+  const weekRow = document.createElement("tr");
+  weekRow.appendChild(el("th", { class: "wg-resource" }, ""));
+  weeks.forEach(w => {
+    weekRow.appendChild(el("th", { class: "wg-week", title: fmtDate(w.weekStart) + " – " + fmtDate(new Date(w.weekEnd.getTime() - 86400000)) }, "Wk " + (w.index + 1)));
+  });
+  weekRow.appendChild(el("th", { class: "wg-total" }, "Total"));
+  head.appendChild(weekRow);
+
+  // --- body: one row per resource ---
+  body.innerHTML = "";
+  state.team.forEach((t, rowIdx) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(el("td", { class: "wg-resource" }, (t.role || "Untitled") + " (" + t.rateClass + ")"));
+
+    weeks.forEach(w => {
+      const key = weeklyKey(w.phaseKey, w.weekInPhase);
+      const val = Number(t.weeklyMap[key]) || 0;
+      const input = document.createElement("input");
+      input.type = "text"; input.inputMode = "decimal"; input.value = val === 0 ? "" : String(val);
+      input.placeholder = "0";
+      input.dataset.key = weeklyCellKey(rowIdx, w.phaseKey, w.weekInPhase);
+
+      input.addEventListener("mousedown", () => {
+        weeklyDrag = { rowIdx, value: Number(input.value) || 0 };
+        const table = document.getElementById("weeklyGridTable");
+        if (table) table.classList.add("wg-dragging");
+      });
+      input.addEventListener("mouseenter", () => {
+        if (weeklyDrag && weeklyDrag.rowIdx === rowIdx) {
+          paintWeeklyCell(rowIdx, w.phaseKey, w.weekInPhase, weeklyDrag.value);
+        }
+      });
+      input.addEventListener("input", () => {
+        t.weeklyMap[key] = Number(input.value) || 0;
+        onWeeklyCellEdited(rowIdx);
+      });
+
+      const td = el("td", { class: "wg-cell" }, input);
+      tr.appendChild(td);
+    });
+
+    const totalCell = el("td", { class: "num wg-total", "data-key": "wg-rowtotal-" + rowIdx }, String(weeklyRowTotal(t, weeks)));
+    tr.appendChild(totalCell);
+    body.appendChild(tr);
+  });
+
+  // --- footer: per-week totals across the team + grand total ---
+  foot.innerHTML = "";
+  const footRow = document.createElement("tr");
+  footRow.appendChild(el("td", { class: "wg-resource" }, "Week total"));
+  let grand = 0;
+  weeks.forEach(w => {
+    const sum = state.team.reduce((a, t) => a + (Number(t.weeklyMap[weeklyKey(w.phaseKey, w.weekInPhase)]) || 0), 0);
+    grand += sum;
+    footRow.appendChild(el("td", { class: "num", "data-key": "wg-weektotal-" + w.phaseKey + "-" + w.weekInPhase }, sum ? String(sum) : ""));
+  });
+  footRow.appendChild(el("td", { class: "num wg-total", "data-key": "wg-grandtotal" }, String(grand)));
+  foot.appendChild(footRow);
+
+  renderWeeklyGridLegend();
+}
+
+function weeklyRowTotal(t, weeks) {
+  return weeks.reduce((a, w) => a + (Number(t.weeklyMap[weeklyKey(w.phaseKey, w.weekInPhase)]) || 0), 0);
+}
+
+function renderWeeklyGridLegend() {
+  const legend = document.getElementById("weeklyGridLegend");
+  if (!legend) return;
+  legend.innerHTML = "";
+  PHASE_KEYS.forEach((k, i) => {
+    const item = document.createElement("span");
+    item.innerHTML = `<span class="phase-swatch" style="background:${PHASE_COLORS[k]}"></span>${PHASES[i]}`;
+    legend.appendChild(item);
+  });
+}
+
+// Directly patches one cell's displayed value without touching any other DOM node
+// — this is what makes drag-painting across many cells feel instant instead of
+// re-rendering (and losing the drag) on every cell crossed.
+function paintWeeklyCell(rowIdx, phaseKey, weekInPhase, value) {
+  const t = state.team[rowIdx];
+  if (!t) return;
+  const key = weeklyKey(phaseKey, weekInPhase);
+  t.weeklyMap[key] = value;
+  const cellInput = document.querySelector('[data-key="' + weeklyCellKey(rowIdx, phaseKey, weekInPhase) + '"]');
+  if (cellInput) cellInput.value = value === 0 ? "" : String(value);
+  onWeeklyCellEdited(rowIdx, { skipFullRender: true });
+}
+
+// Called on every weekly-cell change. During an active drag we only patch the
+// lightweight totals (row total, week-column total, grand total) so painting
+// stays smooth; the full recalculation (phase totals, KPIs, margin, Summary)
+// happens once, on mouseup.
+function onWeeklyCellEdited(rowIdx, opts) {
+  opts = opts || {};
+  const weeks = buildProjectWeeks();
+  const t = state.team[rowIdx];
+  if (!t) return;
+
+  const rowTotalCell = document.querySelector('[data-key="wg-rowtotal-' + rowIdx + '"]');
+  if (rowTotalCell) rowTotalCell.textContent = String(weeklyRowTotal(t, weeks));
+
+  let grand = 0;
+  weeks.forEach(w => {
+    const sum = state.team.reduce((a, tm) => a + (Number(tm.weeklyMap[weeklyKey(w.phaseKey, w.weekInPhase)]) || 0), 0);
+    grand += sum;
+    const cell = document.querySelector('[data-key="wg-weektotal-' + w.phaseKey + '-' + w.weekInPhase + '"]');
+    if (cell) cell.textContent = sum ? String(sum) : "";
+  });
+  const grandCell = document.querySelector('[data-key="wg-grandtotal"]');
+  if (grandCell) grandCell.textContent = String(grand);
+
+  if (opts.skipFullRender) return;
+
+  recomputePhaseTotalsFromWeekly(t, weeks);
+  saveState();
+  renderAll({ skipWeekly: true });
 }
 
 function renderFixedTable() {
@@ -1394,8 +1657,40 @@ function renderProjectModeCards() {
 function updateProjectModeVisibility() {
   const hourlyCard = document.getElementById("hourlyTeamCard");
   const fixedCard = document.getElementById("fixedTeamCard");
-  if (hourlyCard) hourlyCard.style.display = state.projectMode === "fixed" ? "none" : "";
-  if (fixedCard) fixedCard.style.display = state.projectMode === "fixed" ? "" : "none";
+  const detailModeCard = document.getElementById("hourlyDetailModeCard");
+  const weeklyCard = document.getElementById("weeklyGridCard");
+  const isHourly = state.projectMode !== "fixed";
+  if (hourlyCard) hourlyCard.style.display = isHourly ? "" : "none";
+  if (fixedCard) fixedCard.style.display = isHourly ? "none" : "";
+  if (detailModeCard) detailModeCard.style.display = isHourly ? "" : "none";
+  const isWeekly = isHourly && state.hourlyDetailMode === "weekly";
+  if (weeklyCard) weeklyCard.style.display = isWeekly ? "" : "none";
+  const sub = document.getElementById("hourlyTeamCardSub");
+  if (sub) sub.textContent = isWeekly
+    ? "Phase totals below are computed from the Weekly timeline grid — edit hours there."
+    : "Add each resource, pick a rate class, then allocate their hours across phases.";
+}
+
+function renderHourlyDetailModeCards() {
+  const wrap = document.getElementById("hourlyDetailModeCards");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  HOURLY_DETAIL_MODES.forEach(m => {
+    const card = el("div", { class: "track-card" + (state.hourlyDetailMode === m.key ? " selected" : "") }, [
+      el("div", { class: "tc-radio" }),
+      el("div", { class: "tc-title" }, m.label),
+      el("div", { class: "tc-desc" }, m.desc),
+    ]);
+    card.addEventListener("click", () => {
+      state.hourlyDetailMode = m.key;
+      if (m.key === "weekly") {
+        const weeks = buildProjectWeeks();
+        state.team.forEach(t => ensureResourceWeekly(t, weeks));
+      }
+      renderAll(); saveState();
+    });
+    wrap.appendChild(card);
+  });
 }
 
 function renderProjectRangeFields() {
@@ -1790,9 +2085,11 @@ function renderAll(opts) {
   renderDiscoveryDeliveryFields();
   if (!opts.skipRates) renderRatesTable();
   renderProjectModeCards();
+  renderHourlyDetailModeCards();
   updateProjectModeVisibility();
   if (!opts.skipTeam) renderTeamTable();
   if (!opts.skipFixed) renderFixedTable();
+  if (!opts.skipWeekly) renderWeeklyGrid();
   renderProjectRangeFields();
   renderProjectKpis();
   renderProjectRangeKpis();
@@ -2417,6 +2714,25 @@ async function init() {
   bindProjectFields();
   setupTabs();
   renderAll();
+
+  // Commits a weekly-timeline drag: the drag itself only patches lightweight
+  // totals for responsiveness (see paintWeeklyCell); releasing the mouse anywhere
+  // on the page triggers the real recalculation for the row that was painted.
+  document.addEventListener("mouseup", () => {
+    const table = document.getElementById("weeklyGridTable");
+    if (table) table.classList.remove("wg-dragging");
+    if (weeklyDrag) {
+      const rowIdx = weeklyDrag.rowIdx;
+      weeklyDrag = null;
+      const weeks = buildProjectWeeks();
+      const t = state.team[rowIdx];
+      if (t) {
+        recomputePhaseTotalsFromWeekly(t, weeks);
+        saveState();
+        renderAll({ skipWeekly: true });
+      }
+    }
+  });
 
   document.getElementById("btnAddResource").addEventListener("click", () => {
     state.team.push({ role: "New resource", rateClass: state.rates[0].name, planning: 0, discovery: 0, pb: 0, deploy: 0, wrapup: 0 });
