@@ -332,7 +332,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
 
     <div class="card" id="rangeCard">
       <h2>Estimate range</h2>
-      <p class="sub">Set a cost and hours range as a percentage above/below your point estimate — useful for ROM-style ranges before scope is fully locked.</p>
+      <p class="sub">Set a cost and hours range as a percentage above/below your point estimate — useful for ROM-style ranges before scope is fully locked. Margin is recalculated at each cost extreme against the quoted project price, so it moves opposite to cost: lower cost = higher margin, higher cost = lower margin.</p>
       <div class="grid cols-4">
         <div class="field"><label>Cost — low (%)</label><input type="number" min="0" max="100" id="range_cost_low" value="10"></div>
         <div class="field"><label>Cost — high (%)</label><input type="number" min="0" max="200" id="range_cost_high" value="20"></div>
@@ -342,7 +342,7 @@ svg text{font-family:Arial, Helvetica, sans-serif;}
     </div>
 
     <div class="kpis" id="projectKpis"></div>
-    <div class="kpis" id="projectRangeKpis"></div>
+    <div class="kpis" id="projectRangeKpis" style="grid-template-columns:repeat(3,1fr);"></div>
 
     <div class="card">
       <h2>Timeline infographic</h2>
@@ -497,13 +497,11 @@ window.__DC_LOGO__ = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAiAAAABUCAYA
 
 const DEFAULT_RATES = [
   // name, cost, price
-  ["Executive", 128.07, 425],
-  ["Director", 96.34, 325],
-  ["Manager", 95.82, 250],
-  ["Senior Consultant", 80.82, 225],
-  ["Consultant", 71.65, 200],
-  ["Senior Administrator", 43.84, 190],
-  ["Administrator", 40, 160],
+  ["Executive", 120.36, 425],
+  ["Director", 98.66, 325],
+  ["Manager", 98.66, 250],
+  ["Senior Consultant", 98.66, 225],
+  ["Consultant", 83.31, 200],
   ["Independent (1099) — Tier 1", 155, 275],
   ["Independent (1099) — Tier 2", 125, 250],
   ["Independent (1099) — Tier 3", 105, 210],
@@ -520,8 +518,12 @@ const DEFAULT_RATES = [
 // Rate classes whose Cost/hr is a fixed salaried cost and can't be edited in the Rate Card.
 const LOCKED_COST_CLASSES = new Set([
   "Executive", "Director", "Manager", "Senior Consultant", "Consultant",
-  "Senior Administrator", "Administrator",
 ]);
+
+// Rate classes that used to exist but have been removed from the card. Any saved
+// session that still references one of these gets migrated forward on load.
+const RETIRED_RATE_CLASSES = new Set(["Senior Administrator", "Administrator"]);
+const RETIRED_RATE_FALLBACK = "Consultant";
 
 const PHASES = ["Planning", "Discovery", "P&B", "Deploy", "Wrap-up"];
 const PHASE_KEYS = ["planning", "discovery", "pb", "deploy", "wrapup"];
@@ -647,9 +649,23 @@ async function loadState() {
         state.projectRange = Object.assign(d.projectRange, parsed.projectRange || {});
 
         state.rates = (!parsed.rates || !parsed.rates.length) ? d.rates : normalizeRates(parsed.rates, d.rates);
+        // drop any retired rate classes that carried over from an older saved session
+        state.rates = state.rates.filter(r => !RETIRED_RATE_CLASSES.has(r.name));
+        if (!state.rates.length) state.rates = d.rates;
+
         if (!parsed.team || !parsed.team.length) state.team = d.team;
         if (!parsed.fixedLines || !parsed.fixedLines.length) state.fixedLines = d.fixedLines;
         if (!parsed.tm || !parsed.tm.lines || !parsed.tm.lines.length) state.tm.lines = d.tm.lines;
+
+        // re-point anything still referencing a retired rate class to a sane default
+        state.team.forEach(t => { if (RETIRED_RATE_CLASSES.has(t.rateClass)) t.rateClass = RETIRED_RATE_FALLBACK; });
+        state.fixedLines.forEach(l => { if (RETIRED_RATE_CLASSES.has(l.rateClass)) l.rateClass = RETIRED_RATE_FALLBACK; });
+        state.tm.lines.forEach(l => { if (RETIRED_RATE_CLASSES.has(l.rateClass)) l.rateClass = RETIRED_RATE_FALLBACK; });
+        Object.keys(state.ms.rateClass).forEach(k => {
+          if (RETIRED_RATE_CLASSES.has(state.ms.rateClass[k])) {
+            state.ms.rateClass[k] = d.ms.rateClass[k] || RETIRED_RATE_FALLBACK;
+          }
+        });
 
         // migrate old single tm.sla to per-line if present
         if (parsed.tm && parsed.tm.sla && Array.isArray(state.tm.lines)) {
@@ -775,11 +791,20 @@ function computeProjectRange() {
   const costHighPct = Number(r.costHighPct) || 0;
   const hoursLowPct = Number(r.hoursLowPct) || 0;
   const hoursHighPct = Number(r.hoursHighPct) || 0;
+  const costLow = totals.totalCost * (1 - costLowPct / 100);
+  const costHigh = totals.totalCost * (1 + costHighPct / 100);
+  const price = totals.totalPrice;
+  // Price is held at the quoted project price; margin moves inversely with cost —
+  // the low-cost scenario is the best case for margin, high-cost is the worst case.
+  const marginAtCostLow = price > 0 ? (price - costLow) / price : 0;
+  const marginAtCostHigh = price > 0 ? (price - costHigh) / price : 0;
   return {
-    costLow: totals.totalCost * (1 - costLowPct / 100),
-    costHigh: totals.totalCost * (1 + costHighPct / 100),
+    costLow,
+    costHigh,
     hoursLow: totals.totalHours * (1 - hoursLowPct / 100),
     hoursHigh: totals.totalHours * (1 + hoursHighPct / 100),
+    marginAtCostLow,
+    marginAtCostHigh,
   };
 }
 
@@ -1268,6 +1293,8 @@ function renderProjectRangeKpis() {
   wrap.appendChild(kpiCard("Cost — high estimate", fmtMoney(range.costHigh), "grey"));
   wrap.appendChild(kpiCard("Hours — low estimate", Math.round(range.hoursLow).toLocaleString("en-US"), "navy"));
   wrap.appendChild(kpiCard("Hours — high estimate", Math.round(range.hoursHigh).toLocaleString("en-US"), "navy"));
+  wrap.appendChild(kpiCard("Margin — at low cost", fmtPct(range.marginAtCostLow), "cyan"));
+  wrap.appendChild(kpiCard("Margin — at high cost", fmtPct(range.marginAtCostHigh), "cyan"));
 }
 
 function renderProjectKpis() {
@@ -1785,6 +1812,8 @@ function buildProjectPages() {
       ["Cost — high", fmtMoney(range.costHigh)],
       ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
       ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
+      ["Margin — at low cost", fmtPct(range.marginAtCostLow)],
+      ["Margin — at high cost", fmtPct(range.marginAtCostHigh)],
     ])}
     <h2 class="pg-h2">Estimate by phase</h2>
     <table class="pg-table">
@@ -2036,6 +2065,10 @@ function buildDocxBody() {
       ["Cost — high", fmtMoney(range.costHigh)],
       ["Hours — low", Math.round(range.hoursLow).toLocaleString("en-US")],
       ["Hours — high", Math.round(range.hoursHigh).toLocaleString("en-US")],
+    ]);
+    body += wKpiLine([
+      ["Margin — at low cost", fmtPct(range.marginAtCostLow)],
+      ["Margin — at high cost", fmtPct(range.marginAtCostHigh)],
     ]);
 
     body += wHeading("Estimate by phase");
